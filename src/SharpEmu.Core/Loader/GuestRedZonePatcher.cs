@@ -349,6 +349,41 @@ internal static class GuestRedZonePatcher
     /// behaviour can be pinned on the byte sequences that occur in real guest
     /// code rather than on a mocked decode.
     /// </summary>
+    // Test hook: the forward span a site at siteAddress gets, as the patcher builds it.
+    internal static bool TryBuildForwardSpan(
+        byte[] code,
+        ulong baseAddress,
+        ulong siteAddress,
+        out int spanLength,
+        out int coreStart,
+        out int coreCount)
+    {
+        spanLength = 0;
+        coreStart = 0;
+        coreCount = 0;
+        var decoded = DecodeFunction(code, baseAddress, baseAddress, baseAddress + (ulong)code.Length);
+        var siteIndex = -1;
+        for (var index = 0; index < decoded.Count; index++)
+        {
+            if (decoded[index].Instruction.IP == siteAddress)
+            {
+                siteIndex = index;
+                break;
+            }
+        }
+
+        if (siteIndex < 0 ||
+            !TryBuildPatchSpan(decoded, siteIndex, CollectBranchTargets(decoded), out var site, out _))
+        {
+            return false;
+        }
+
+        spanLength = site.ByteLength;
+        coreStart = site.CoreStart;
+        coreCount = site.CoreCount;
+        return true;
+    }
+
     internal static bool TryBuildEnclosingSpan(
         byte[] code,
         ulong baseAddress,
@@ -417,8 +452,13 @@ internal static class GuestRedZonePatcher
 
         if (coreStart < 0)
         {
-            coreCount = 0;
-            return false;
+            // Nothing in the span touches guest memory: it is a SHA or vector-store rewrite over
+            // register-only instructions. The span builder already refused anything that touches
+            // RSP, so the whole span can run inside the shift. Refusing it here left every SHA
+            // instruction unrewritten, trapping on each execution on hosts without SHA.
+            coreStart = 0;
+            coreCount = instructions.Count;
+            return true;
         }
 
         for (var index = coreStart; index <= coreEnd; index++)
