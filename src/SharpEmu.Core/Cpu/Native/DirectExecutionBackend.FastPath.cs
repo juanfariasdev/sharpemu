@@ -23,6 +23,7 @@ public sealed unsafe partial class DirectExecutionBackend
 		PthreadSelf,
 		PthreadGetspecific,
 		MemoryCopy,
+		MemoryFill,
 	}
 
 	// scePthreadSelf / pthread_self.
@@ -37,11 +38,18 @@ public sealed unsafe partial class DirectExecutionBackend
 	private const string MemcpyNid = "Q3VBxCXhUHs";
 	private const string MemmoveNid = "+P6FRGH4LfA";
 
+	// memset.
+	private const string MemsetNid = "8zTFvBIAIN8";
+
 	// Guest memory is identity-mapped and every fault the copy can take (write tracking, lazy
 	// commit) is resolved from the fault address alone, so the copy may run as guest-side code.
 	// SHARPEMU_HLE_FAST_MEMCPY=0 keeps it on the managed export.
 	private static readonly bool GuestMemoryCopyStubEnabled =
 		!string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_HLE_FAST_MEMCPY"), "0", StringComparison.Ordinal);
+
+	// The same reasoning covers a fill. SHARPEMU_HLE_FAST_MEMSET=0 keeps it on the managed export.
+	private static readonly bool GuestMemoryFillStubEnabled =
+		!string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_HLE_FAST_MEMSET"), "0", StringComparison.Ordinal);
 
 	private uint _fastPathBlockTlsIndex = uint.MaxValue;
 	private bool _guestFastPathEnabled;
@@ -100,6 +108,7 @@ public sealed unsafe partial class DirectExecutionBackend
 		PthreadSelfNid or PosixPthreadSelfNid => GuestFastPathStub.PthreadSelf,
 		PthreadGetspecificNid or PosixPthreadGetspecificNid => GuestFastPathStub.PthreadGetspecific,
 		MemcpyNid or MemmoveNid => GuestFastPathStub.MemoryCopy,
+		MemsetNid => GuestFastPathStub.MemoryFill,
 		_ => GuestFastPathStub.None,
 	};
 
@@ -119,7 +128,8 @@ public sealed unsafe partial class DirectExecutionBackend
 		var kind = ClassifyGuestFastPathStub(nid);
 		if (kind == GuestFastPathStub.None ||
 			// The write watch inspects every managed guest write, which a native copy never reaches.
-			(kind == GuestFastPathStub.MemoryCopy && (!GuestMemoryCopyStubEnabled || GuestWriteWatch.Armed)))
+			(kind == GuestFastPathStub.MemoryCopy && (!GuestMemoryCopyStubEnabled || GuestWriteWatch.Armed)) ||
+			(kind == GuestFastPathStub.MemoryFill && (!GuestMemoryFillStubEnabled || GuestWriteWatch.Armed)))
 		{
 			return false;
 		}
@@ -171,6 +181,11 @@ public sealed unsafe partial class DirectExecutionBackend
 		if (kind == GuestFastPathStub.MemoryCopy)
 		{
 			return EmitGuestMemoryCopyStub(fallbackTrampoline);
+		}
+
+		if (kind == GuestFastPathStub.MemoryFill)
+		{
+			return EmitGuestMemoryFillStub(fallbackTrampoline);
 		}
 
 		var code = new List<byte>(48);
@@ -278,6 +293,48 @@ public sealed unsafe partial class DirectExecutionBackend
 		// mov rax, rdi / mov rcx, rdx / rep movsb / ret
 		code.AddRange([0x48, 0x89, 0xF8, 0x48, 0x89, 0xD1, 0xF3, 0xA4, 0xC3]);
 		code[slowPathFixup] = checked((byte)(code.Count - (slowPathFixup + 1)));
+		// jmp qword [rip+0] with the absolute trampoline address after it.
+		code.AddRange([0xFF, 0x25, 0x00, 0x00, 0x00, 0x00]);
+		code.AddRange(BitConverter.GetBytes((long)fallbackTrampoline));
+		return code;
+	}
+
+	/// <summary>
+	/// memset(dst, c, n) as a forward <c>rep stosb</c>, returning dst. The managed export
+	/// answers the destinations a native store would fault on - the null page and
+	/// non-canonical addresses - and rejects fills of 2 GiB or more, so all of those take
+	/// the managed path. Only RAX, RCX, RDI and the flags change, all caller-saved.
+	/// </summary>
+	internal static List<byte> EmitGuestMemoryFillStub(nint fallbackTrampoline)
+	{
+		var code = new List<byte>(56);
+		var slowPathFixups = new List<int>();
+
+		void EmitBranchToSlowPath(byte opcode)
+		{
+			code.AddRange([opcode, 0x00]);
+			slowPathFixups.Add(code.Count - 1);
+		}
+
+		// cmp rdi, 0x1000 / jb slow: the null page.
+		code.AddRange([0x48, 0x81, 0xFF, 0x00, 0x10, 0x00, 0x00]);
+		EmitBranchToSlowPath(0x72);
+		// mov rcx, rdi / shr rcx, 47 / jnz slow: a non-canonical destination.
+		code.AddRange([0x48, 0x89, 0xF9, 0x48, 0xC1, 0xE9, 0x2F]);
+		EmitBranchToSlowPath(0x75);
+		// mov rcx, rdx / shr rcx, 31 / jnz slow: 2 GiB or more.
+		code.AddRange([0x48, 0x89, 0xD1, 0x48, 0xC1, 0xE9, 0x1F]);
+		EmitBranchToSlowPath(0x75);
+		// mov eax, esi / mov rcx, rdx / rep stosb / mov rax, rdi / sub rax, rdx / ret:
+		// stosb leaves rdi at dst + n and rdx still holds n.
+		code.AddRange([0x89, 0xF0, 0x48, 0x89, 0xD1, 0xF3, 0xAA, 0x48, 0x89, 0xF8, 0x48, 0x29, 0xD0, 0xC3]);
+
+		var slowPathOffset = code.Count;
+		foreach (var fixup in slowPathFixups)
+		{
+			code[fixup] = checked((byte)(slowPathOffset - (fixup + 1)));
+		}
+
 		// jmp qword [rip+0] with the absolute trampoline address after it.
 		code.AddRange([0xFF, 0x25, 0x00, 0x00, 0x00, 0x00]);
 		code.AddRange(BitConverter.GetBytes((long)fallbackTrampoline));
