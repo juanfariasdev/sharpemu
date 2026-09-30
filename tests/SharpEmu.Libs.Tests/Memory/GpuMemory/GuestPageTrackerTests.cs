@@ -188,6 +188,72 @@ public sealed class GuestPageTrackerTests : IDisposable
         Release(address, Region);
     }
 
+    // Pages the CPU rewrites after every upload are streamed: a write fault on one of them opens
+    // the rest of its hot run at once, and a fault on any other page opens only that page.
+    [NativePageProtectionFact]
+    public void WriteFaultOnAHotPageOpensTheRestOfItsHotRun()
+    {
+        var address = AllocateAligned(Region, Region);
+        // Two upload-then-write rounds make pages 0..5 hot; pages 6 and 7 are written only once.
+        for (var round = 0; round < 2; round++)
+        {
+            _tracker.ForEachUploadRange(address, Region, false, NoRange, NoUpload, preserveCpuWriteHotPages: false);
+            Assert.True(_tracker.InvalidateRegion(address, Page * (round == 0 ? 8ul : 6ul), () => { }));
+        }
+
+        _tracker.ForEachUploadRange(address, Region, false, NoRange, NoUpload, preserveCpuWriteHotPages: false);
+        Assert.Equal(Page * 6, _tracker.CountCpuWriteHotBytes(address, Page * 8));
+        Assert.False(IsWritable(address + Page * 3));
+
+        Assert.True(_tracker.InvalidateCpuWriteFault(address + Page + 8, 8, out var needsGpuFlush));
+        Assert.False(needsGpuFlush);
+        Assert.False(_tracker.HasCpuDirtyPages(address, Page));
+        for (var page = 1ul; page < 6; page++)
+        {
+            Assert.True(_tracker.HasCpuDirtyPages(address + Page * page, Page));
+            Assert.True(IsWritable(address + Page * page));
+        }
+
+        Assert.False(_tracker.HasCpuDirtyPages(address + Page * 6, Page));
+        Assert.False(IsWritable(address + Page * 6));
+
+        Assert.True(_tracker.InvalidateCpuWriteFault(address + Page * 6, 8, out needsGpuFlush));
+        Assert.True(IsWritable(address + Page * 6));
+        Assert.False(IsWritable(address + Page * 7));
+
+        _tracker.UntrackMemory(address, Region);
+        Release(address, Region);
+    }
+
+    // A GPU-written page ends the run: its bytes must be downloaded, not overwritten as CPU-dirty.
+    [NativePageProtectionFact]
+    public void WriteFaultRunStopsAtAGpuWrittenPage()
+    {
+        var address = AllocateAligned(Region, Region);
+        for (var round = 0; round < 2; round++)
+        {
+            _tracker.ForEachUploadRange(address, Region, false, NoRange, NoUpload, preserveCpuWriteHotPages: false);
+            Assert.True(_tracker.InvalidateRegion(address, Page * 4, () => { }));
+        }
+
+        _tracker.ForEachUploadRange(address, Region, false, NoRange, NoUpload, preserveCpuWriteHotPages: false);
+        _tracker.ForEachUploadRange(address + Page * 2, Page, true, NoRange, NoUpload);
+        Assert.True(_tracker.HasGpuDirtyPages(address + Page * 2, Page));
+
+        Assert.True(_tracker.InvalidateCpuWriteFault(address, 8, out var needsGpuFlush));
+        Assert.False(needsGpuFlush);
+        Assert.True(_tracker.HasCpuDirtyPages(address + Page, Page));
+        Assert.True(_tracker.HasGpuDirtyPages(address + Page * 2, Page));
+        Assert.False(_tracker.HasCpuDirtyPages(address + Page * 3, Page));
+
+        Assert.True(_tracker.InvalidateCpuWriteFault(address + Page * 2, 8, out needsGpuFlush));
+        Assert.True(needsGpuFlush);
+
+        _tracker.ForEachDownloadRange(address + Page * 2, Page, clear: true, null, NoRange);
+        _tracker.UntrackMemory(address, Region);
+        Release(address, Region);
+    }
+
     [NativePageProtectionFact]
     public void PossiblyCpuDirtyRangesSkipOnlyBlocksKnownClean()
     {

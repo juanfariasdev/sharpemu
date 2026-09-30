@@ -8,6 +8,9 @@ public interface IGuestBufferStore
     // Returns true when recovery completes, even if a later operation adds a new watch.
     bool MarkCpuWrite(ulong address, ulong size);
 
+    // The same for a write fault, which may also open neighbouring pages the guest is streaming.
+    bool MarkCpuWriteFault(ulong address, ulong size) => MarkCpuWrite(address, size);
+
     bool DownloadToCpu(ulong address, ulong size);
 
     // True for current CPU data or an untracked range; false when required recovery fails.

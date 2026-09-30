@@ -79,7 +79,7 @@ public sealed class GuestGpuMemory : IDisposable
         bool handled;
         if (kind == FaultKind.Write)
         {
-            handled = (buffers?.MarkCpuWrite(address, faultSize) ?? false) | (images?.MarkCpuWrite(address, faultSize) ?? false);
+            handled = (buffers?.MarkCpuWriteFault(address, faultSize) ?? false) | (images?.MarkCpuWrite(address, faultSize) ?? false);
         }
         else
         {

@@ -70,6 +70,21 @@ public sealed class TrackedRegion
         return bytes;
     }
 
+    // The bytes from the page holding address up to the first page that is not CPU-write hot
+    // (or is GPU-dirty), at most maxPages. Hot pages are rewritten after every upload, so a
+    // write to one of them is almost always followed by writes to the rest of its run.
+    public ulong CpuWriteHotRunBytes(ulong address, int maxPages)
+    {
+        var (start, _) = GetPageRange(address, 1);
+        var end = start;
+        while (end < TrackerLayout.PagesPerBlock && end - start < maxPages && _hotCpuWrites.Get(end) && !_gpuDirty.Get(end))
+        {
+            end++;
+        }
+
+        return (ulong)(end - start) * PageBytes;
+    }
+
     // Count only clean-to-dirty transitions. Repeated reads cannot make a page hot.
     public void MarkCpuWrite(ulong address, ulong size)
     {
