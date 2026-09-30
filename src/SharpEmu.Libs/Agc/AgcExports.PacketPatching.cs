@@ -559,14 +559,14 @@ public static partial class AgcExports
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
         }
 
-        if (!TryReadUInt32(ctx, commandAddress, out _))
+        if (!TryReadUInt32(ctx, commandAddress, out var packetHeader))
         {
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
         }
 
+        // The header read above decides the layout; this runs hundreds of times a frame.
         if (!TryGetIndirectPatchLayout(
-                ctx,
-                commandAddress,
+                packetHeader,
                 registerSpace,
                 out _,
                 out var countOffset,
@@ -601,12 +601,23 @@ public static partial class AgcExports
         addressOffset = 0;
         countOffset = 0;
         countMask = 0;
-        if (!TryGetPacketIdentity(ctx, commandAddress, out var op, out var register) ||
-            !TryReadUInt32(ctx, commandAddress, out var header))
-        {
-            return false;
-        }
+        return commandAddress != 0 &&
+            TryReadUInt32(ctx, commandAddress, out var header) &&
+            TryGetIndirectPatchLayout(header, registerSpace, out addressOffset, out countOffset, out countMask);
+    }
 
+    private static bool TryGetIndirectPatchLayout(
+        uint header,
+        string registerSpace,
+        out ulong addressOffset,
+        out ulong countOffset,
+        out uint countMask)
+    {
+        addressOffset = 0;
+        countOffset = 0;
+        countMask = 0;
+        var op = (header >> 8) & 0xFFu;
+        var register = (header >> 2) & 0x3Fu;
         var expectedOp = registerSpace switch
         {
             "cx" => ItSetContextRegIndirect,

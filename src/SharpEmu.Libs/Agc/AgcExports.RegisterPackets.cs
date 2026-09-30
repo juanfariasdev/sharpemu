@@ -61,8 +61,7 @@ public static partial class AgcExports
             var valueCount = (uint)(endIndex - startIndex);
             var packetDwords = valueCount + 2;
             if (!TryAllocateCommandDwords(ctx, commandBufferAddress, packetDwords, out var commandAddress) ||
-                !TryWriteUInt32(ctx, commandAddress, Pm4(packetDwords, ItSetShReg, 0)) ||
-                !TryWriteUInt32(ctx, commandAddress + 4, registers[startIndex].Offset & 0xFFFFu))
+                !TryWriteDwords(ctx, commandAddress, Pm4(packetDwords, ItSetShReg, 0), registers[startIndex].Offset & 0xFFFFu))
             {
                 return ReturnPointer(ctx, 0);
             }
@@ -110,11 +109,9 @@ public static partial class AgcExports
         using (AgcRegisterPacketProfile.Measure(AgcRegisterPacketProfile.Phase.PacketSetup))
         {
             if (!TryAllocateCommandDwords(ctx, commandBufferAddress, 2, out var markerAddress) ||
-                !TryWriteUInt32(ctx, markerAddress, Pm4(2, ItNop, RZero)) ||
-                !TryWriteUInt32(ctx, markerAddress + 4, CbSetShRegisterRangeMarker) ||
+                !TryWriteDwords(ctx, markerAddress, Pm4(2, ItNop, RZero), CbSetShRegisterRangeMarker) ||
                 !TryAllocateCommandDwords(ctx, commandBufferAddress, packetDwords, out commandAddress) ||
-                !TryWriteUInt32(ctx, commandAddress, Pm4(packetDwords, ItSetShReg, 0)) ||
-                !TryWriteUInt32(ctx, commandAddress + 4, offset))
+                !TryWriteDwords(ctx, commandAddress, Pm4(packetDwords, ItSetShReg, 0), offset))
             {
                 AgcRegisterPacketProfile.RecordResult(false);
                 return ReturnPointer(ctx, 0);
@@ -289,11 +286,7 @@ public static partial class AgcExports
         };
         if (op == 0 ||
             !TryAllocateCommandDwords(ctx, commandBufferAddress, 5, out var commandAddress) ||
-            !TryWriteUInt32(ctx, commandAddress, Pm4(5, op, 0)) ||
-            !TryWriteUInt32(ctx, commandAddress + 4, (uint)(registersAddress & 0xFFFF_FFFCUL)) ||
-            !TryWriteUInt32(ctx, commandAddress + 8, (uint)(registersAddress >> 32)) ||
-            !TryWriteUInt32(ctx, commandAddress + 12, 0x8000_0000u) ||
-            !TryWriteUInt32(ctx, commandAddress + 16, registerCount & 0x3FFFu))
+            !TryWriteDwords(ctx, commandAddress, Pm4(5, op, 0), (uint)(registersAddress & 0xFFFF_FFFCUL), (uint)(registersAddress >> 32), 0x8000_0000u, registerCount & 0x3FFFu))
         {
             return ReturnPointer(ctx, 0);
         }
@@ -316,9 +309,7 @@ public static partial class AgcExports
 
         const uint packetDwords = 3;
         if (!TryAllocateCommandDwords(ctx, commandBufferAddress, packetDwords, out var commandAddress) ||
-            !TryWriteUInt32(ctx, commandAddress, Pm4(packetDwords, op, 0)) ||
-            !TryWriteUInt32(ctx, commandAddress + 4, registerOffset & 0xFFFFu) ||
-            !TryWriteUInt32(ctx, commandAddress + 8, registerValue))
+            !TryWriteDwords(ctx, commandAddress, Pm4(packetDwords, op, 0), registerOffset & 0xFFFFu, registerValue))
         {
             return ReturnPointer(ctx, 0);
         }
@@ -360,8 +351,7 @@ public static partial class AgcExports
 
         var packetDwords = valueCount + 2;
         if (!TryAllocateCommandDwords(ctx, commandBufferAddress, packetDwords, out var commandAddress) ||
-            !TryWriteUInt32(ctx, commandAddress, Pm4(packetDwords, op, 0)) ||
-            !TryWriteUInt32(ctx, commandAddress + 4, offset & 0xFFFFu))
+            !TryWriteDwords(ctx, commandAddress, Pm4(packetDwords, op, 0), offset & 0xFFFFu))
         {
             return ReturnPointer(ctx, 0);
         }

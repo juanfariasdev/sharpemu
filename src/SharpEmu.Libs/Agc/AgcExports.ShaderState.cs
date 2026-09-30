@@ -551,8 +551,7 @@ public static partial class AgcExports
                  (hullSpecialsAddress != 0 ? hullSpecialsAddress : specialsAddress) +
                      ShaderSpecialGeUserVgprEnOffset,
                  ucRegistersAddress + 8) ||
-             !TryWriteUInt32(ctx, ucRegistersAddress + 16, VgtPrimitiveType) ||
-             !TryWriteUInt32(ctx, ucRegistersAddress + 20, primitiveType)))
+             !TryWriteDwords(ctx, ucRegistersAddress + 16, VgtPrimitiveType, primitiveType)))
         {
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
         }
