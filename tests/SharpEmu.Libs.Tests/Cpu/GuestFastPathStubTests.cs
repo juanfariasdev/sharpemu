@@ -1,6 +1,7 @@
 // Copyright (C) 2026 SharpEmu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+using Iced.Intel;
 using SharpEmu.Core.Cpu.Native;
 using SharpEmu.HLE;
 using System.Diagnostics;
@@ -295,6 +296,122 @@ public sealed unsafe class GuestFastPathStubTests
         }
 
         Assert.Equal(original, buffer);
+    }
+
+    private const ulong MemoryFillSlowPathMarker = 0x5105_1A7B_AC4E_0002UL;
+
+    [Fact]
+    public void MemoryFillStub_FillsWithTheLowByteAndReturnsTheDestination()
+    {
+        if (!CanRunStubs())
+        {
+            return;
+        }
+
+        using var stub = new MemoryFillStub();
+        var buffer = new byte[300];
+        fixed (byte* pointer = buffer)
+        {
+            Assert.Equal((ulong)(pointer + 4), stub.Call(pointer + 4, 0x1A5, 290));
+            Assert.Equal((ulong)pointer, stub.Call(pointer, 0x77, 0));
+        }
+
+        Assert.Equal(new byte[4], buffer.Take(4));
+        Assert.All(buffer.Skip(4).Take(290), value => Assert.Equal(0xA5, value));
+        Assert.Equal(new byte[6], buffer.Skip(294));
+    }
+
+    [Fact]
+    public void MemoryFillStub_LeavesTheManagedExportsRecoveriesToIt()
+    {
+        if (!CanRunStubs())
+        {
+            return;
+        }
+
+        using var stub = new MemoryFillStub();
+        Assert.Equal(MemoryFillSlowPathMarker, stub.Call((byte*)0, 0, 16));
+        Assert.Equal(MemoryFillSlowPathMarker, stub.Call((byte*)0xFFF, 0, 1));
+        Assert.Equal(MemoryFillSlowPathMarker, stub.Call((byte*)0x0000_8000_0000_0000UL, 0, 8));
+
+        var buffer = new byte[16];
+        fixed (byte* pointer = buffer)
+        {
+            Assert.Equal(MemoryFillSlowPathMarker, stub.Call(pointer, 1, (nuint)1 << 31));
+        }
+
+        Assert.Equal(new byte[16], buffer);
+    }
+
+    // Decodes rather than executes, so it also runs on hosts that cannot run the stub.
+    [Fact]
+    public void MemoryFillStub_SendsEveryDeclinedCallToTheFallbackAndWritesOnlyCallerSavedRegisters()
+    {
+        const ulong fallback = 0x0000_7000_1234_5678UL;
+        var bytes = DirectExecutionBackend.EmitGuestMemoryFillStub((nint)fallback).ToArray();
+        var decoder = Decoder.Create(64, new ByteArrayCodeReader(bytes));
+        var instructions = new List<Instruction>();
+        while (decoder.IP < (ulong)bytes.Length - sizeof(ulong))
+        {
+            instructions.Add(decoder.Decode());
+        }
+
+        var slowPath = instructions[^1];
+        Assert.Equal(Mnemonic.Jmp, slowPath.Mnemonic);
+        Assert.True(slowPath.IsIPRelativeMemoryOperand);
+        Assert.Equal(slowPath.NextIP, slowPath.IPRelativeMemoryAddress);
+        Assert.Equal(fallback, BitConverter.ToUInt64(bytes, (int)slowPath.NextIP));
+        Assert.Equal(Mnemonic.Ret, instructions[^2].Mnemonic);
+        Assert.Contains(instructions, instruction => instruction.Mnemonic == Mnemonic.Stosb && instruction.HasRepPrefix);
+
+        var branches = instructions.Where(instruction => instruction.FlowControl == FlowControl.ConditionalBranch).ToList();
+        Assert.Equal(3, branches.Count);
+        Assert.All(branches, branch => Assert.Equal(slowPath.IP, branch.NearBranchTarget));
+
+        var infoFactory = new InstructionInfoFactory();
+        var written = instructions
+            .SelectMany(instruction => infoFactory.GetInfo(instruction).GetUsedRegisters())
+            .Where(used => used.Access is OpAccess.Write or OpAccess.ReadWrite or OpAccess.CondWrite or OpAccess.ReadCondWrite)
+            .Select(used => used.Register.GetFullRegister())
+            .ToHashSet();
+        // ret pops the return address; that is the only change to RSP the caller sees.
+        written.Remove(Register.RSP);
+        Assert.Subset(new HashSet<Register> { Register.RAX, Register.RCX, Register.RDI }, written);
+    }
+
+    /// <summary>The memset stub called with the platform (SysV) convention the guest uses.</summary>
+    private sealed class MemoryFillStub : IDisposable
+    {
+        private readonly byte* _page;
+
+        public MemoryFillStub()
+        {
+            _page = (byte*)HostMemory.Alloc(
+                null,
+                4096,
+                HostMemory.MEM_COMMIT | HostMemory.MEM_RESERVE,
+                HostMemory.PAGE_EXECUTE_READWRITE);
+            Assert.True(_page != null);
+
+            // Fallback at +0x100: mov rax, marker / ret.
+            _page[0x100] = 0x48;
+            _page[0x101] = 0xB8;
+            *(ulong*)(_page + 0x102) = MemoryFillSlowPathMarker;
+            _page[0x10A] = 0xC3;
+
+            var stub = DirectExecutionBackend.EmitGuestMemoryFillStub((nint)(_page + 0x100));
+            for (var i = 0; i < stub.Count; i++)
+            {
+                _page[i] = stub[i];
+            }
+
+            Assert.True(HostMemory.Protect(_page, 4096, HostMemory.PAGE_EXECUTE_READ, out _));
+        }
+
+        public ulong Call(byte* destination, int value, nuint count) =>
+            ((delegate* unmanaged<byte*, int, nuint, ulong>)_page)(destination, value, count);
+
+        public void Dispose() => _ = HostMemory.Free(_page, 0, HostMemory.MEM_RELEASE);
     }
 
     /// <summary>The memcpy stub called with the platform (SysV) convention the guest uses.</summary>
