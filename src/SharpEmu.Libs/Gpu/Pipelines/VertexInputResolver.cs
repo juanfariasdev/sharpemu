@@ -34,10 +34,7 @@ public static class VertexInputResolver
     public static VertexInputInfo ResolveVertexInputs(CpuContext context, RegisteredShader shader, ReadOnlySpan<uint> userData,
         uint positionExportControl = 0, ClipSpaceTransform clipSpace = default)
     {
-        if (!TryReadTables(context, shader, GpuCommands.Registers.UserScalarRegisters.Capacity, out var metadata, out var error))
-        {
-            throw SubmissionScheduler.Fatal($"The vertex program header is invalid: shader=0x{shader.CodeAddress:X16} error={error}.");
-        }
+        var metadata = ReadTablesForSubmission(context, shader);
 
         var attributes = new List<VertexAttributeResource>();
         VertexInputBuffer[] buffers = [];
@@ -69,6 +66,35 @@ public static class VertexInputResolver
             PositionExportControl = positionExportControl,
             ClipSpace = clipSpace,
         };
+    }
+
+    // The header's table registers and semantics are the same for every draw of a shader, and
+    // reading them is a dozen guest accesses; within one submission they are read once.
+    [ThreadStatic] private static Dictionary<(ulong Code, ulong UserData, ulong Semantics, uint SemanticCount), VertexTableMetadata>? _metadata;
+    [ThreadStatic] private static long _metadataEpoch;
+
+    private static VertexTableMetadata ReadTablesForSubmission(CpuContext context, RegisteredShader shader)
+    {
+        var epoch = GpuCommands.CommandStreamQueue.SubmissionEpoch;
+        var cache = _metadata ??= new();
+        if (_metadataEpoch != epoch)
+        {
+            cache.Clear();
+            _metadataEpoch = epoch;
+        }
+
+        var key = (shader.CodeAddress, shader.UserDataAddress, shader.InputSemanticsAddress, shader.InputSemanticsCount);
+        if (!cache.TryGetValue(key, out var metadata))
+        {
+            if (!TryReadTables(context, shader, GpuCommands.Registers.UserScalarRegisters.Capacity, out metadata, out var error))
+            {
+                throw SubmissionScheduler.Fatal($"The vertex program header is invalid: shader=0x{shader.CodeAddress:X16} error={error}.");
+            }
+
+            cache[key] = metadata;
+        }
+
+        return metadata;
     }
 
     private static ulong ReadTablePointer(ReadOnlySpan<uint> userData, int register) =>
@@ -255,12 +281,10 @@ public static class VertexInputResolver
             }
 
             var descriptorAddress = bufferTable + index * 16u;
-            for (var component = 0; component < 4; component++)
+            // One access for the four descriptor words.
+            if (!context.Memory.TryRead(descriptorAddress, System.Runtime.InteropServices.MemoryMarshal.AsBytes(descriptorWords)))
             {
-                if (!context.TryReadUInt32(descriptorAddress + (ulong)component * sizeof(uint), out descriptorWords[component]))
-                {
-                    throw SubmissionScheduler.Fatal($"The vertex buffer table is unreadable: shader=0x{shaderAddress:X16} address=0x{descriptorAddress:X16}.");
-                }
+                throw SubmissionScheduler.Fatal($"The vertex buffer table is unreadable: shader=0x{shaderAddress:X16} address=0x{descriptorAddress:X16}.");
             }
 
             var descriptor = BufferDescriptorWords.From(descriptorWords);
