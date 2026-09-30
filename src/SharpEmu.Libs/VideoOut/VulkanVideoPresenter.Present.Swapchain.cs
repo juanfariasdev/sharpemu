@@ -25,6 +25,7 @@ internal static unsafe partial class VulkanVideoPresenter
         private bool _hdrRequestedForSwapchain;
         private float _hdrSdrWhiteLevel = 1f;
         private float _hdrHeadroom = 1f;
+        private (int X, int Y) _framebufferSizeAtLastRecreate;
         private Image[] _presentationImages = [];
         private DeviceMemory[] _presentationImageMemory = [];
         private ImageView[] _presentationImageViews = [];
@@ -81,12 +82,7 @@ internal static unsafe partial class VulkanVideoPresenter
 
             var hdrState = _window.HdrState;
             var guestHdrRequested = VideoOutExports.IsHdrOutputRequested;
-            var requestHdr = _videoOptions.HdrMode switch
-            {
-                HostHdrMode.On => true,
-                HostHdrMode.Auto => hdrState.Enabled && guestHdrRequested,
-                _ => false,
-            };
+            var requestHdr = RequestsHdrOutput(hdrState);
             _hdrRequestedForSwapchain = requestHdr;
             var surfaceFormat = ChooseSurfaceFormat(formats, requestHdr, out _hdrOutputActive);
             _hdrSdrWhiteLevel = _hdrOutputActive ? Math.Max(1f, hdrState.SdrWhiteLevel) : 1f;
@@ -319,6 +315,30 @@ internal static unsafe partial class VulkanVideoPresenter
             }
 
             return PresentModeKHR.FifoKhr;
+        }
+
+        private bool RequestsHdrOutput(SdlHdrState hdrState) => _videoOptions.HdrMode switch
+        {
+            HostHdrMode.On => true,
+            HostHdrMode.Auto => hdrState.Enabled && VideoOutExports.IsHdrOutputRequested,
+            _ => false,
+        };
+
+        // macOS republishes the display's EDR headroom whenever brightness or the content
+        // on screen changes, and a recreated swapchain can itself set off another
+        // notification. Only a change to what the swapchain was created for needs a new one:
+        // the HDR decision, or the white level and headroom an active HDR output encodes with.
+        private bool HdrStateChangeAffectsSwapchain()
+        {
+            var hdrState = _window.HdrState;
+            if (RequestsHdrOutput(hdrState) != _hdrRequestedForSwapchain)
+            {
+                return true;
+            }
+
+            return _hdrOutputActive &&
+                   (Math.Max(1f, hdrState.SdrWhiteLevel) != _hdrSdrWhiteLevel ||
+                    Math.Max(1f, hdrState.Headroom) != _hdrHeadroom);
         }
 
         private Extent2D ChooseExtent(SurfaceCapabilitiesKHR capabilities)
