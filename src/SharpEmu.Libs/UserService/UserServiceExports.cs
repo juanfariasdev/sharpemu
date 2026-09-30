@@ -10,6 +10,9 @@ namespace SharpEmu.Libs.UserService;
 
 public static class UserServiceExports
 {
+    // Read once: the check runs on every call through this path.
+    private static readonly bool _envLogUserService = string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_USER_SERVICE"), "1", StringComparison.Ordinal);
+
     private const int OrbisUserServiceErrorInvalidArgument = unchecked((int)0x80960005);
     private const int OrbisUserServiceErrorNoEvent = unchecked((int)0x80960007);
     private const int OrbisUserServiceErrorInvalidParameter = unchecked((int)0x80960009);
@@ -306,10 +309,7 @@ public static class UserServiceExports
 
     private static void Trace(string message)
     {
-        if (string.Equals(
-                Environment.GetEnvironmentVariable("SHARPEMU_LOG_USER_SERVICE"),
-                "1",
-                StringComparison.Ordinal))
+        if (_envLogUserService)
         {
             var returnRip = GuestThreadExecution.TryGetCurrentImportCallFrame(out var frame)
                 ? frame.ReturnRip

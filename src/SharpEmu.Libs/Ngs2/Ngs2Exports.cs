@@ -11,6 +11,9 @@ namespace SharpEmu.Libs.Ngs2;
 
 public static class Ngs2Exports
 {
+    // Read once: the check runs on every call through this path.
+    private static readonly bool _envLogNgs2 = string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_NGS2"), "1", StringComparison.Ordinal);
+
     private const int OrbisNgs2ErrorInvalidOutAddress = unchecked((int)0x804A0053);
     private const int OrbisNgs2ErrorInvalidSystemHandle = unchecked((int)0x804A0230);
     private const int OrbisNgs2ErrorInvalidRackHandle = unchecked((int)0x804A0261);
@@ -901,10 +904,7 @@ public static class Ngs2Exports
     }
 
     private static bool ShouldTrace() =>
-        string.Equals(
-            Environment.GetEnvironmentVariable("SHARPEMU_LOG_NGS2"),
-            "1",
-            StringComparison.Ordinal);
+        _envLogNgs2;
 
     private static int SetReturn(CpuContext ctx, int result)
     {

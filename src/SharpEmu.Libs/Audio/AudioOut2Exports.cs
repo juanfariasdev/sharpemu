@@ -13,6 +13,9 @@ namespace SharpEmu.Libs.Audio;
 
 public static class AudioOut2Exports
 {
+    // Read once: the check runs on every call through this path.
+    private static readonly bool _envLogAudioOut2 = string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_AUDIO_OUT2"), "1", StringComparison.Ordinal);
+
     // FMOD's PS5 backend allocates this ABI structure as four 16-byte lanes.
     // Clearing 0x80 bytes here overwrote the caller's stack canary immediately
     // following the 0x40-byte parameter block.
@@ -1236,7 +1239,7 @@ public static class AudioOut2Exports
 
     private static void TraceAudioOut2(string message)
     {
-        if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_AUDIO_OUT2"), "1", StringComparison.Ordinal))
+        if (_envLogAudioOut2)
         {
             Console.Error.WriteLine($"[LOADER][TRACE] audio_out2.{message}");
         }

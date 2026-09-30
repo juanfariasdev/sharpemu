@@ -22,6 +22,9 @@ internal readonly record struct Atrac9DecodeResult(
 
 internal sealed class Atrac9DecodeState
 {
+    // Read once: the check runs on every call through this path.
+    private static readonly bool _envLogAjm = string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_AJM"), "1", StringComparison.Ordinal);
+
     internal const int ResultNotInitialized = 0x00000001;
     internal const int ResultInvalidData = 0x00000002;
     internal const int ResultInvalidParameter = 0x00000004;
@@ -389,7 +392,7 @@ internal sealed class Atrac9DecodeState
 
     private static void Trace(string message)
     {
-        if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_AJM"), "1", StringComparison.Ordinal))
+        if (_envLogAjm)
         {
             Console.Error.WriteLine($"[LOADER][TRACE] ajm.at9.{message}");
         }

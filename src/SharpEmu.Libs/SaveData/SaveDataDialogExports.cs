@@ -8,6 +8,9 @@ namespace SharpEmu.Libs.SaveData;
 
 public static class SaveDataDialogExports
 {
+    // Read once: the check runs on every call through this path.
+    private static readonly bool _envLogSavedata = string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_SAVEDATA"), "1", StringComparison.Ordinal);
+
     private const int StatusNone = 0;
     private const int StatusInitialized = 1;
     private const int StatusRunning = 2;
@@ -201,7 +204,7 @@ public static class SaveDataDialogExports
 
     private static void TraceSaveDataDialog(string message)
     {
-        if (!string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_SAVEDATA"), "1", StringComparison.Ordinal))
+        if (!_envLogSavedata)
         {
             return;
         }
