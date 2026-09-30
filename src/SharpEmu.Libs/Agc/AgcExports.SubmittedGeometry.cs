@@ -169,6 +169,7 @@ public static partial class AgcExports
             return;
         }
 
+        using var readWindow = new ReadWindowScope(ctx, commandAddress, (ulong)dwordCount * sizeof(uint));
         var offset = 0u;
         while (offset < dwordCount)
         {
