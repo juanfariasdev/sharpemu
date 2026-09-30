@@ -46,11 +46,7 @@ public static partial class AgcExports
             ((sourceSelector & 0x1u) << 30);
 
         if (!TryWriteUInt32(ctx, packetAddress, Pm4(6, ItCopyData, 0)) ||
-            !TryWriteUInt32(ctx, packetAddress + 4, control) ||
-            !TryWriteUInt32(ctx, packetAddress + 8, (uint)sourceValue) ||
-            !TryWriteUInt32(ctx, packetAddress + 12, (uint)(sourceValue >> 32)) ||
-            !TryWriteUInt32(ctx, packetAddress + 16, (uint)destinationAddress) ||
-            !TryWriteUInt32(ctx, packetAddress + 20, (uint)(destinationAddress >> 32)))
+            !TryWriteDwords(ctx, packetAddress + 4, control, (uint)sourceValue, (uint)(sourceValue >> 32), (uint)destinationAddress, (uint)(destinationAddress >> 32)))
         {
             return ReturnPointer(ctx, 0);
         }
