@@ -8,17 +8,32 @@
 # libraries cannot be used; the presenter looks for this app-local copy.
 #
 # Usage: scripts/fetch-macos-moltenvk.sh [output-dir]
-#        (default output: artifacts/bin/Debug/net10.0/osx-x64)
+#        (default: every existing artifacts/bin/<Debug|Release>/net10.0/osx-x64)
 set -euo pipefail
 
 MVK_VERSION="${MVK_VERSION:-v1.4.0}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_DIR="${1:-$REPO_ROOT/artifacts/bin/Debug/net10.0/osx-x64}"
-
-if [[ ! -d "$OUT_DIR" ]]; then
-  echo "output directory does not exist: $OUT_DIR (build first?)" >&2
-  exit 2
+OUT_DIRS=()
+if [[ $# -gt 0 ]]; then
+  OUT_DIRS=("$1")
+else
+  # A Release build is the one to play on, and a Debug build the one to
+  # debug; stage both so neither starts without video output.
+  for CONFIGURATION in Debug Release; do
+    CANDIDATE="$REPO_ROOT/artifacts/bin/$CONFIGURATION/net10.0/osx-x64"
+    [[ -d "$CANDIDATE" ]] && OUT_DIRS+=("$CANDIDATE")
+  done
+  if [[ ${#OUT_DIRS[@]} -eq 0 ]]; then
+    OUT_DIRS=("$REPO_ROOT/artifacts/bin/Debug/net10.0/osx-x64")
+  fi
 fi
+
+for OUT_DIR in "${OUT_DIRS[@]}"; do
+  if [[ ! -d "$OUT_DIR" ]]; then
+    echo "output directory does not exist: $OUT_DIR (build first?)" >&2
+    exit 2
+  fi
+done
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -32,6 +47,8 @@ tar -xf "$WORK_DIR/mvk.tar" -C "$WORK_DIR" \
 DYLIB="$WORK_DIR/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib"
 file "$DYLIB" | grep -q x86_64 || { echo "downloaded dylib lacks x86_64 slice" >&2; exit 3; }
 
-cp "$DYLIB" "$OUT_DIR/libMoltenVK.dylib"
-cp "$DYLIB" "$OUT_DIR/libvulkan.1.dylib"
-echo ">> Staged libMoltenVK.dylib + libvulkan.1.dylib in $OUT_DIR"
+for OUT_DIR in "${OUT_DIRS[@]}"; do
+  cp "$DYLIB" "$OUT_DIR/libMoltenVK.dylib"
+  cp "$DYLIB" "$OUT_DIR/libvulkan.1.dylib"
+  echo ">> Staged libMoltenVK.dylib + libvulkan.1.dylib in $OUT_DIR"
+done
