@@ -7,8 +7,9 @@ using System.Text;
 namespace SharpEmu.Logging;
 
 /// <summary>
-/// Reads the macOS GPU's IOAccelerator registry entry: its model name and
-/// core count. Neither needs elevated privileges, and the system frameworks are
+/// Reads the macOS GPU's IOAccelerator registry entry: its model name, core
+/// count and the utilization the driver publishes in PerformanceStatistics.
+/// None of these need elevated privileges, and the system frameworks are
 /// universal, so this works in arm64 processes and under Rosetta 2 alike.
 /// </summary>
 public static class MacAccelerator
@@ -41,6 +42,51 @@ public static class MacAccelerator
             return cores is null;
         });
         return cores is > 0 and <= int.MaxValue ? (int)cores : null;
+    }
+
+    /// <summary>
+    /// Returns the busiest accelerator's "Device Utilization %", or NaN when
+    /// it cannot be read. The driver reports the whole device, not one process.
+    /// </summary>
+    public static double ReadDeviceUtilization()
+    {
+        var percent = double.NaN;
+        ForEachAccelerator(service =>
+        {
+            var statistics = CreateProperty(service, "PerformanceStatistics");
+            if (statistics == 0)
+            {
+                return true;
+            }
+
+            try
+            {
+                if (CFGetTypeID(statistics) == CFDictionaryGetTypeID() &&
+                    ReadDictionaryNumber(statistics, "Device Utilization %") is { } value)
+                {
+                    percent = IncludeAccelerator(percent, value);
+                }
+            }
+            finally
+            {
+                CFRelease(statistics);
+            }
+
+            return true;
+        });
+        return percent;
+    }
+
+    // A Mac can register more than one accelerator (dual-GPU Intel models, an eGPU).
+    // The busiest one stands for the host, as the Windows sampler takes the busiest engine.
+    internal static double IncludeAccelerator(double current, long value)
+    {
+        if (value < 0)
+        {
+            return current;
+        }
+
+        return Math.Max(double.IsNaN(current) ? 0 : current, Math.Min(100, value));
     }
 
     private static void ForEachAccelerator(Func<uint, bool> visit)
@@ -154,6 +200,26 @@ public static class MacAccelerator
         }
     }
 
+    private static long? ReadDictionaryNumber(nint dictionary, string key)
+    {
+        var cfKey = CreateCFString(key);
+        if (cfKey == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            // Get rule: the value is owned by the dictionary.
+            var value = CFDictionaryGetValue(dictionary, cfKey);
+            return value == 0 ? null : ToInt64(value);
+        }
+        finally
+        {
+            CFRelease(cfKey);
+        }
+    }
+
     private static long? ToInt64(nint value)
     {
         if (CFGetTypeID(value) != CFNumberGetTypeID())
@@ -204,6 +270,9 @@ public static class MacAccelerator
     private static extern bool CFStringGetCString(nint value, byte[] buffer, nint bufferSize, uint encoding);
 
     [DllImport(CoreFoundationLibrary)]
+    private static extern nint CFDictionaryGetValue(nint dictionary, nint key);
+
+    [DllImport(CoreFoundationLibrary)]
     [return: MarshalAs(UnmanagedType.U1)]
     private static extern bool CFNumberGetValue(nint number, int type, out long value);
 
@@ -224,6 +293,9 @@ public static class MacAccelerator
 
     [DllImport(CoreFoundationLibrary)]
     private static extern nuint CFNumberGetTypeID();
+
+    [DllImport(CoreFoundationLibrary)]
+    private static extern nuint CFDictionaryGetTypeID();
 
     [DllImport(CoreFoundationLibrary)]
     private static extern void CFRelease(nint value);
