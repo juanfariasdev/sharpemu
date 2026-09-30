@@ -110,6 +110,11 @@ public sealed class CommandStreamQueue
         }
     }
 
+    private static long _submissionEpoch;
+
+    // Advances whenever any queue starts a submission; per-submission caches key on it.
+    public static long SubmissionEpoch => Interlocked.Read(ref _submissionEpoch);
+
     public GpuCommandInterpreter GetInterpreter(int queueId)
     {
         if (queueId < 0 || queueId >= QueueCount)
@@ -470,6 +475,7 @@ public sealed class CommandStreamQueue
 
         if (firstSlice)
         {
+            Interlocked.Increment(ref _submissionEpoch);
             submission.Started = true;
             processor.SubmitId = ++_submitId;
             processor.ResetCounters();
