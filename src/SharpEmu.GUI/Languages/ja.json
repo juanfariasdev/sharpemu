@@ -169,6 +169,7 @@
   "Options.Env.Bthid.Desc": "ハンドル/FFBミドルウェアが永久に待機するタイトル向けに、Bluetooth HIDを利用不可として報告します。\n通常はオフのままにしてください。初期化に失敗するとフリーズするタイトルもあります。",
   "Options.Env.LoopGuard.Desc": "同じ呼び出しを長時間繰り返すタイトルを強制終了しません。\nロード中にゲームが勝手に終了する場合に試してください。",
   "Options.Env.WritableApp0.Desc": "タイトルがインストールフォルダー内にファイルを作成・書き込みできるようにします。\nセーブや設定データを/app0以下に書き込む未パッケージのダンプに必要です。",
+  "Options.Env.NoFlipPacing.Desc": "エミュレートされた vblank を待たずに、タイトルが送ったフレームをすぐに表示します。\n60 fps を維持できず 30 に落ちるゲームでフレームレートが上がります。VSync をオフにするとリフレッシュレートを超えることがあります。ティアリングや動きのムラが出ることがあります。",
   "Options.Env.VkValidation.Desc": "GPUデバッグ用のVulkan検証レイヤーを有効にします。\n低速です。Vulkan SDKのインストールが必要です。",
   "Options.Env.DumpSpirv.Desc": "AGCシェーダーとそのSPIR-V変換をshader-dumpsフォルダーに出力します。\nシェーダーや描画のバグを報告する際に使用してください。",
   "Options.Env.LogDirectMemory.Desc": "ダイレクトメモリの割り当てと失敗をコンソールに記録します。\nゲームが起動中に中断・終了する場合に使用してください。",

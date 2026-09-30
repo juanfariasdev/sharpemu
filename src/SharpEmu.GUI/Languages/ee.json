@@ -55,6 +55,7 @@
   "Options.Env.Bthid.Desc": "Märgi Bluetooth HID kättesaamatuks mängude puhul, mille rooli/FFB-vahetarkvara küsib andmeid lõputult.\nTavaliselt jäta välja lülitatuks. Mõni mäng hangub, kui initsialiseerimine ebaõnnestub.",
   "Options.Env.LoopGuard.Desc": "Ära sulge sundkorras mänge, mis kordavad sama kutset liiga kaua.\nProovi seda, kui mäng laadimise ajal iseenesest sulgub.",
   "Options.Env.WritableApp0.Desc": "Luba mängudel luua ja kirjutada faile oma paigalduskausta.\nVajalik pakendamata koopiatele, mis salvestavad oma andmed või seadistused kausta /app0.",
+  "Options.Env.NoFlipPacing.Desc": "Näita iga kaadrit kohe, kui mäng selle saadab, ootamata emuleeritud vblanki.\nTõstab kaadrisagedust, kui mäng ei suuda hoida 60 fps ja langeb 30-le; välja lülitatud VSynciga võib see ületada värskendussagedust. Võib põhjustada kujutise rebenemist või ebaühtlast liikumist.",
   "Options.Env.VkValidation.Desc": "Luba Vulkani valideerimiskihid GPU silumiseks.\nAeglane. Nõuab paigaldatud Vulkan SDK-d.",
   "Options.Env.DumpSpirv.Desc": "Salvesta AGC-shaderid ja nende SPIR-V tõlked kausta shader-dumps.\nKasuta shaderi- või kuvamisvea teatamisel.",
   "Options.Env.LogDirectMemory.Desc": "Logi konsooli otsese mälu eraldamised ja tõrked.\nKasuta siis, kui mäng katkeb või sulgub käivitamise ajal.",

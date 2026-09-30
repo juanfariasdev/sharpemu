@@ -169,6 +169,7 @@
   "Options.Env.Bthid.Desc": "Meld Bluetooth HID als niet beschikbaar voor titels waarvan de stuur-/FFB-middleware eindeloos blijft wachten.\nLaat dit normaal uit. Sommige titels bevriezen wanneer de initialisatie mislukt.",
   "Options.Env.LoopGuard.Desc": "Titels die dezelfde aanroep te lang herhalen niet geforceerd afsluiten.\nProbeer dit wanneer een game zichzelf tijdens het laden afsluit.",
   "Options.Env.WritableApp0.Desc": "Sta titels toe bestanden aan te maken en te schrijven in hun installatiemap.\nNodig voor uitgepakte dumps die hun save- of configuratiegegevens onder /app0 wegschrijven.",
+  "Options.Env.NoFlipPacing.Desc": "Toon elk frame zodra de titel het aanlevert, zonder te wachten op de geëmuleerde vblank.\nVerhoogt de framerate wanneer een game geen 60 fps haalt en naar 30 zakt; met VSync uit kan die boven de verversingssnelheid uitkomen. Kan tearing of ongelijkmatige beweging veroorzaken.",
   "Options.Env.VkValidation.Desc": "Schakel Vulkan-validatielagen in voor GPU-debugging.\nTraag. Vereist een geïnstalleerde Vulkan SDK.",
   "Options.Env.DumpSpirv.Desc": "Sla AGC-shaders en hun SPIR-V-vertalingen op in de map shader-dumps.\nGebruik dit bij het melden van shader- of renderfouten.",
   "Options.Env.LogDirectMemory.Desc": "Log directe geheugentoewijzingen en fouten naar de console.\nGebruik dit wanneer een game tijdens het opstarten afbreekt of afsluit.",

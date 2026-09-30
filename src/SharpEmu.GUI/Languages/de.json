@@ -169,6 +169,7 @@
   "Options.Env.Bthid.Desc": "Bluetooth-HID als nicht verfügbar melden, wenn die Lenkrad-/FFB-Middleware eines Titels endlos wartet.\nNormalerweise ausgeschaltet lassen. Manche Titel frieren ein, wenn die Initialisierung fehlschlägt.",
   "Options.Env.LoopGuard.Desc": "Titel nicht zwangsweise beenden, wenn sie denselben Aufruf zu lange wiederholen.\nAusprobieren, wenn ein Spiel sich beim Laden von selbst beendet.",
   "Options.Env.WritableApp0.Desc": "Titeln erlauben, Dateien in ihrem Installationsordner anzulegen und zu schreiben.\nNötig für entpackte Dumps, die ihre Spielstände oder Konfiguration unter /app0 speichern.",
+  "Options.Env.NoFlipPacing.Desc": "Zeigt jedes Bild an, sobald der Titel es übergibt, ohne auf den emulierten VBlank zu warten.\nErhöht die Bildrate, wenn ein Spiel keine 60 fps hält und auf 30 fällt; mit ausgeschaltetem VSync kann sie über die Bildwiederholrate steigen. Kann Tearing oder ungleichmäßige Bewegung verursachen.",
   "Options.Env.VkValidation.Desc": "Vulkan-Validierungsschichten für GPU-Debugging aktivieren.\nLangsam. Erfordert ein installiertes Vulkan SDK.",
   "Options.Env.DumpSpirv.Desc": "AGC-Shader und ihre SPIR-V-Übersetzungen im Ordner shader-dumps ablegen.\nBeim Melden von Shader- oder Grafikfehlern verwenden.",
   "Options.Env.LogDirectMemory.Desc": "Direkte Speicherzuweisungen und Fehler in der Konsole protokollieren.\nVerwenden, wenn ein Spiel beim Start abbricht oder sich beendet.",

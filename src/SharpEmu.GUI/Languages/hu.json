@@ -185,6 +185,7 @@
 
   "Library.Context.GameSettings": "Játékbeállítások…",
   "Options.Env.WritableApp0.Desc": "Engedélyezi, hogy a játékok fájlokat hozzanak létre és írjanak a telepítési mappájukban.\nA kicsomagolt dumpokhoz szükséges, amelyek a mentéseiket vagy beállításaikat az /app0 alá írják.",
+  "Options.Env.NoFlipPacing.Desc": "Minden képkockát azonnal megjelenít, amint a játék elküldi, az emulált vblankra való várakozás nélkül.\nNöveli a képkockasebességet, ha a játék nem tudja tartani a 60 fps-t és 30-ra esik; kikapcsolt VSync mellett a frissítési frekvencia fölé is mehet. Képszakadást vagy egyenetlen mozgást okozhat.",
   "Options.Env.LogIo.Desc": "A fájlmegnyitások, olvasások és útvonal-feloldások naplózása a konzolra.\nAkkor használd, ha egy játék indításkor nem találja az adatfájljait.",
   "Common.Save": "Mentés",
   "Common.Cancel": "Mégse",
