@@ -25,6 +25,10 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 	private static readonly bool LogThreadMode =
 		string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_THREAD_MODE"), "1", StringComparison.Ordinal);
 
+	// Read once: checked every time a guest thread parks or resumes a continuation.
+	private static readonly bool TraceFocusedContinuationEnabled =
+		string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_TRACE_FOCUSED_CONTINUATION"), "1", StringComparison.Ordinal);
+
 	private static void TraceThreadMode(string message)
 	{
 		Console.Error.WriteLine(
@@ -5989,10 +5993,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		GuestCpuContinuation continuation,
 		string detail)
 	{
-		if (!string.Equals(
-				Environment.GetEnvironmentVariable("SHARPEMU_TRACE_FOCUSED_CONTINUATION"),
-				"1",
-				StringComparison.Ordinal) ||
+		if (!TraceFocusedContinuationEnabled ||
 			continuation.Rsp < 0x00006FFFAC000000UL ||
 			continuation.Rsp >= 0x00006FFFAC200000UL)
 		{

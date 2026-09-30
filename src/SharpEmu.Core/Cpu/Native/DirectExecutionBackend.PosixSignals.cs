@@ -84,6 +84,9 @@ public sealed unsafe partial class DirectExecutionBackend
 	private static long _perfSignalCount;
 	private static readonly bool _perfSignalCounter =
 		string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_PERF_MEM"), "1", StringComparison.Ordinal);
+	// Read once: every guest write to a tracked page lands in the handler.
+	private static readonly bool _logEveryPosixSignal =
+		string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_POSIX_SIGNALS"), "1", StringComparison.Ordinal);
 
 	[ThreadStatic]
 	private static int _posixSignalHandlerDepth;
@@ -319,8 +322,7 @@ public sealed unsafe partial class DirectExecutionBackend
 		pointers.ContextRecord = contextRecord;
 
 		int traceIndex = _posixSignalWarmup ? 0 : Interlocked.Increment(ref _posixSignalTraceCount);
-		bool traceSignal = traceIndex > 0 && (traceIndex <= 16 || traceIndex % 1024 == 0 ||
-			string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_POSIX_SIGNALS"), "1", StringComparison.Ordinal));
+		bool traceSignal = traceIndex > 0 && (traceIndex <= 16 || traceIndex % 1024 == 0 || _logEveryPosixSignal);
 		if (traceSignal)
 		{
 			Console.Error.WriteLine(
