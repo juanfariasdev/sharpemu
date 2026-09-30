@@ -217,6 +217,17 @@ public sealed class PerformanceOverlayTests
         Assert.InRange(sampler.Percent, 0, 100);
     }
 
+    [MacOSFact]
+    public void ProcessFootprintCoversTheManagedHeap()
+    {
+        var retained = new byte[64 * 1024 * 1024];
+        Array.Fill(retained, (byte)1);
+
+        Assert.True(HostProcessMemory.TryGetFootprintBytes(out var footprint));
+        Assert.True(footprint >= (ulong)GC.GetTotalMemory(false));
+        GC.KeepAlive(retained);
+    }
+
     [Fact]
     public void MacGpuSamplerCanCloseWithAQueuedSample()
     {

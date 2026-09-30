@@ -278,16 +278,22 @@ public static class PerfOverlay
             _gpuUsage?.RequestSample();
             var gpuLabel = FormatUsage(gpuPercent);
             var timeLabel = $"{elapsedHours:00}:{elapsedMinutes:00}:{elapsedRemainingSeconds:00}";
-            _line5 = $"CPU {_cpuPercent:0}%  GPU {gpuLabel}";
+            // Where the host reports the process footprint, MEM shows that and the managed
+            // heap gets its own field: the heap alone leaves out guest memory and the driver.
+            var hasFootprint = HostProcessMemory.TryGetFootprintBytes(out var footprintBytes);
+            var memoryMb = hasFootprint ? (long)(footprintBytes / (1024 * 1024)) : heapMb;
+            _line5 = hasFootprint
+                ? $"CPU {_cpuPercent:0}%  GPU {gpuLabel}  HEAP {heapMb}M"
+                : $"CPU {_cpuPercent:0}%  GPU {gpuLabel}";
             if (Volatile.Read(ref _metalMemoryStatistics) != 0)
             {
                 var deviceMb = Interlocked.Read(ref _deviceAllocatedBytes) / (1024 * 1024);
-                _line4 = $"MEM {heapMb}M MTL {deviceMb}M IMG {guestImageMemoryInMiB}M";
+                _line4 = $"MEM {memoryMb}M MTL {deviceMb}M IMG {guestImageMemoryInMiB}M";
                 _line6 = $"TIME {timeLabel}  TEX {Volatile.Read(ref _cachedTextureCount)}";
             }
             else
             {
-                _line4 = $"MEM {heapMb}M BUF {guestBufferMb}M IMG {guestImageMemoryInMiB}M";
+                _line4 = $"MEM {memoryMb}M BUF {guestBufferMb}M IMG {guestImageMemoryInMiB}M";
                 _line6 = $"TIME {timeLabel}  VKALLOC {liveAllocations}/{peakAllocations}";
             }
             _minimalLine1 = $"FPS {_fps:0.0}  CPU {_cpuPercent:0}%";
