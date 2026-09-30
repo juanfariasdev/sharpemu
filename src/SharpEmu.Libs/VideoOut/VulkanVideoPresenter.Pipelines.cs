@@ -743,7 +743,9 @@ internal static unsafe partial class VulkanVideoPresenter
                         PDynamicState = &dynamicState,
                         Layout = layout,
                     };
+                    var hitchStart = System.Diagnostics.Stopwatch.GetTimestamp();
                     Check(_vk.CreateGraphicsPipelines(_device, _pipelineCache, 1, &pipelineInfo, null, out var pipeline), "vkCreateGraphicsPipelines(rendering)");
+                    HitchProfile.CountPipelineCreation(System.Diagnostics.Stopwatch.GetTimestamp() - hitchStart);
                     MarkPipelineCacheDirty();
                     Interlocked.Increment(ref _perfPipelineCreations);
                     SetDebugName(
@@ -789,7 +791,9 @@ internal static unsafe partial class VulkanVideoPresenter
                     Stage = stageInfo,
                     Layout = layout,
                 };
+                var hitchStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 Check(_vk.CreateComputePipelines(_device, _pipelineCache, 1, &pipelineInfo, null, out pipeline), "vkCreateComputePipelines(rendering)");
+                HitchProfile.CountPipelineCreation(System.Diagnostics.Stopwatch.GetTimestamp() - hitchStart);
                 MarkPipelineCacheDirty();
                 Interlocked.Increment(ref _perfPipelineCreations);
                 SetDebugName(ObjectType.Pipeline, pipeline.Handle, $"SharpEmu compute cs=0x{description.Stage.Hash:X16}");

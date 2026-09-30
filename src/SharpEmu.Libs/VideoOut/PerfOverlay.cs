@@ -127,6 +127,11 @@ public static class PerfOverlay
         if (last != 0)
         {
             var milliseconds = (now - last) * 1000.0 / Stopwatch.Frequency;
+            if (HitchProfile.Enabled)
+            {
+                HitchProfile.OnFlip(milliseconds);
+            }
+
             var index = _frameHistoryIndex;
             _frameMilliseconds[index] = milliseconds;
             _frameHistoryIndex = (index + 1) % FrameHistorySize;

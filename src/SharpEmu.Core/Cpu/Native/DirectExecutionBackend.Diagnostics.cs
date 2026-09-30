@@ -43,6 +43,35 @@ public sealed partial class DirectExecutionBackend
 
 	private static long _perfHleFirstTimestamp;
 
+	private static readonly System.Collections.Generic.Dictionary<string, (long Calls, long Ticks)> _hitchHleBaseline = new();
+
+	// HitchProfile's probe: the HLE exports that took the most time since the previous flip.
+	internal static string DescribeHleSinceLastFlip(bool describe)
+	{
+		var deltas = describe ? new System.Collections.Generic.List<(string Name, long Calls, long Ticks)>() : null;
+		foreach (var kvp in _perfHleCosts)
+		{
+			var calls = System.Threading.Interlocked.Read(ref kvp.Value.Calls);
+			var ticks = System.Threading.Interlocked.Read(ref kvp.Value.Ticks);
+			_hitchHleBaseline.TryGetValue(kvp.Key, out var previous);
+			_hitchHleBaseline[kvp.Key] = (calls, ticks);
+			if (deltas is not null && ticks > previous.Ticks)
+			{
+				deltas.Add((kvp.Key, calls - previous.Calls, ticks - previous.Ticks));
+			}
+		}
+
+		if (deltas is null)
+		{
+			return string.Empty;
+		}
+
+		var frequency = (double)System.Diagnostics.Stopwatch.Frequency;
+		return string.Join(" | ", System.Linq.Enumerable.Take(
+			System.Linq.Enumerable.OrderByDescending(deltas, static delta => delta.Ticks), 8)
+			.Select(delta => $"{delta.Name} {delta.Ticks * 1000.0 / frequency:F1}ms n={delta.Calls}"));
+	}
+
 	private static void RecordPerfHleDispatchTime(long ticks)
 	{
 		var total = System.Threading.Interlocked.Add(ref _perfHleDispatchTicks, ticks);

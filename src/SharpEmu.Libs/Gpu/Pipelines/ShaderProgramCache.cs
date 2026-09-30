@@ -485,6 +485,7 @@ internal sealed class ShaderProgramCache
         var permutationDump = ShaderPermutationDump.WriteInputs(
             source, key, sourceWasCached, _programs.Keys, entry.Permutations,
             specialization, request, pushDataCursor, _nextProgramId + 1);
+        var hitchStart = System.Diagnostics.Stopwatch.GetTimestamp();
         if (!_compiler.TryCompileProgram(request, out var compiled, out var error) || compiled is null)
         {
             throw new ShaderProgramRejectedException($"The shader program cannot be compiled: stage={source.Label} hash=0x{source.Hash:X16} shader=0x{source.Address:X16} error={error}.");
@@ -517,6 +518,7 @@ internal sealed class ShaderProgramCache
         CompiledShaderDump.Write(source.Label, source.Address, source.Hash, compiled, program);
         var id = ++_nextProgramId;
         var module = _host.CreateShaderModule(compiled, source.Stage, source.Hash, id);
+        VideoOut.HitchProfile.CountShaderCompile(System.Diagnostics.Stopwatch.GetTimestamp() - hitchStart);
         var info = CreateProgramInfo(source, entry, resources, layout, request);
         return new ProgramPermutation
         {

@@ -457,6 +457,7 @@ internal static unsafe partial class VulkanVideoPresenter
 
         private void RecreateSwapchainResources(string operation, Result result)
         {
+            HitchProfile.CountSwapchainRecreation();
             if (_device.Handle == 0)
             {
                 return;

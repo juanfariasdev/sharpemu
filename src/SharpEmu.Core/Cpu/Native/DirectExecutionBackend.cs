@@ -1284,6 +1284,10 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		Console.Error.WriteLine($"[LOADER][INFO] Setting up {importStubs.Count} import stubs...");
 		ClearImportHandlerTrampolines();
 		ConfigureGuestFastPath();
+		if (SharpEmu.Libs.VideoOut.HitchProfile.Enabled && _perfHleHistogram)
+		{
+			SharpEmu.Libs.VideoOut.HitchProfile.HleProbe = DescribeHleSinceLastFlip;
+		}
 		_importEntries = new ImportStubEntry[importStubs.Count];
 		HashSet<ulong> hashSet = new HashSet<ulong>(importStubs.Keys);
 		int num = 0;
