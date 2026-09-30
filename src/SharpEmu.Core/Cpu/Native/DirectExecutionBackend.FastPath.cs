@@ -24,6 +24,9 @@ public sealed unsafe partial class DirectExecutionBackend
 		PthreadGetspecific,
 		MemoryCopy,
 		MemoryFill,
+		AgcCxIndirectPatchAdd,
+		AgcShIndirectPatchAdd,
+		AgcUcIndirectPatchAdd,
 	}
 
 	// scePthreadSelf / pthread_self.
@@ -40,6 +43,17 @@ public sealed unsafe partial class DirectExecutionBackend
 
 	// memset.
 	private const string MemsetNid = "8zTFvBIAIN8";
+
+	// sceAgcSet{Cx,Sh,Uc}RegIndirectPatchAddRegisters.
+	private const string AgcCxIndirectPatchAddNid = "d-6uF9sZDIU";
+	private const string AgcShIndirectPatchAddNid = "z2duB-hHQSM";
+	private const string AgcUcIndirectPatchAddNid = "vRoArM9zaIk";
+
+	// The AGC packet-patching stubs only touch the command buffer the guest owns, like the
+	// memory stubs; SHARPEMU_HLE_FAST_AGC=0 or AGC tracing keeps them on the managed exports.
+	private static readonly bool GuestAgcPatchStubEnabled =
+		!string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_HLE_FAST_AGC"), "0", StringComparison.Ordinal) &&
+		!string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_AGC"), "1", StringComparison.Ordinal);
 
 	// Guest memory is identity-mapped and every fault the copy can take (write tracking, lazy
 	// commit) is resolved from the fault address alone, so the copy may run as guest-side code.
@@ -109,6 +123,9 @@ public sealed unsafe partial class DirectExecutionBackend
 		PthreadGetspecificNid or PosixPthreadGetspecificNid => GuestFastPathStub.PthreadGetspecific,
 		MemcpyNid or MemmoveNid => GuestFastPathStub.MemoryCopy,
 		MemsetNid => GuestFastPathStub.MemoryFill,
+		AgcCxIndirectPatchAddNid => GuestFastPathStub.AgcCxIndirectPatchAdd,
+		AgcShIndirectPatchAddNid => GuestFastPathStub.AgcShIndirectPatchAdd,
+		AgcUcIndirectPatchAddNid => GuestFastPathStub.AgcUcIndirectPatchAdd,
 		_ => GuestFastPathStub.None,
 	};
 
@@ -129,13 +146,16 @@ public sealed unsafe partial class DirectExecutionBackend
 		if (kind == GuestFastPathStub.None ||
 			// The write watch inspects every managed guest write, which a native copy never reaches.
 			(kind == GuestFastPathStub.MemoryCopy && (!GuestMemoryCopyStubEnabled || GuestWriteWatch.Armed)) ||
-			(kind == GuestFastPathStub.MemoryFill && (!GuestMemoryFillStubEnabled || GuestWriteWatch.Armed)))
+			(kind == GuestFastPathStub.MemoryFill && (!GuestMemoryFillStubEnabled || GuestWriteWatch.Armed)) ||
+			(kind is GuestFastPathStub.AgcCxIndirectPatchAdd or GuestFastPathStub.AgcShIndirectPatchAdd or GuestFastPathStub.AgcUcIndirectPatchAdd &&
+				(!GuestAgcPatchStubEnabled || GuestWriteWatch.Armed)))
 		{
 			return false;
 		}
 
 		var code = EmitGuestFastPathStub(kind, _fastPathBlockTlsIndex, fallbackTrampoline);
-		const uint stubAllocationSize = 128u;
+		// The AGC packet-patching stub is about 130 bytes.
+		const uint stubAllocationSize = 256u;
 		if (code.Count > stubAllocationSize)
 		{
 			return false;
@@ -186,6 +206,18 @@ public sealed unsafe partial class DirectExecutionBackend
 		if (kind == GuestFastPathStub.MemoryFill)
 		{
 			return EmitGuestMemoryFillStub(fallbackTrampoline);
+		}
+
+		switch (kind)
+		{
+			// SET_CONTEXT_REG_INDIRECT 0x9F / NOP register 0x12, and the SH (0x63 / 0x11) and
+			// UCONFIG (0x64 / 0x13) forms; the constants mirror AgcExports.
+			case GuestFastPathStub.AgcCxIndirectPatchAdd:
+				return EmitAgcIndirectPatchAddStub(0x9F, 0x12, fallbackTrampoline);
+			case GuestFastPathStub.AgcShIndirectPatchAdd:
+				return EmitAgcIndirectPatchAddStub(0x63, 0x11, fallbackTrampoline);
+			case GuestFastPathStub.AgcUcIndirectPatchAdd:
+				return EmitAgcIndirectPatchAddStub(0x64, 0x13, fallbackTrampoline);
 		}
 
 		var code = new List<byte>(48);
@@ -333,6 +365,78 @@ public sealed unsafe partial class DirectExecutionBackend
 		foreach (var fixup in slowPathFixups)
 		{
 			code[fixup] = checked((byte)(slowPathOffset - (fixup + 1)));
+		}
+
+		// jmp qword [rip+0] with the absolute trampoline address after it.
+		code.AddRange([0xFF, 0x25, 0x00, 0x00, 0x00, 0x00]);
+		code.AddRange(BitConverter.GetBytes((long)fallbackTrampoline));
+		return code;
+	}
+
+	/// <summary>
+	/// sceAgcSet{Cx,Sh,Uc}RegIndirectPatchAddRegisters(packet, count): adds count to the register
+	/// count of an indirect register packet, as AgcExports.AddIndirectPatchRegisters does, and
+	/// returns 0. The native packet (the expected opcode, five dwords, count in the low 14 bits
+	/// of dword 4) and the legacy NOP form (the expected register, four dwords, a full 32-bit
+	/// count in dword 1) are handled; a null, non-canonical or unrecognised packet takes the
+	/// managed export, which reports the error. Only RAX, RCX, RDX and the flags change.
+	/// </summary>
+	internal static List<byte> EmitAgcIndirectPatchAddStub(byte expectedOp, byte expectedLegacyRegister, nint fallbackTrampoline)
+	{
+		var code = new List<byte>(96);
+		var slowPathFixups = new List<int>();
+		var legacyFixups = new List<int>();
+
+		void Branch(List<int> fixups, byte opcode)
+		{
+			code.AddRange([opcode, 0x00]);
+			fixups.Add(code.Count - 1);
+		}
+
+		// cmp rdi, 0x1000 / jb slow
+		code.AddRange([0x48, 0x81, 0xFF, 0x00, 0x10, 0x00, 0x00]);
+		Branch(slowPathFixups, 0x72);
+		// mov rax, rdi / shr rax, 47 / jnz slow
+		code.AddRange([0x48, 0x89, 0xF8, 0x48, 0xC1, 0xE8, 0x2F]);
+		Branch(slowPathFixups, 0x75);
+		// mov eax, [rdi]: the header. ecx = opcode, edx = length - 2.
+		code.AddRange([0x8B, 0x07]);
+		code.AddRange([0x89, 0xC1, 0xC1, 0xE9, 0x08, 0x81, 0xE1, 0xFF, 0x00, 0x00, 0x00]);
+		code.AddRange([0x89, 0xC2, 0xC1, 0xEA, 0x10, 0x81, 0xE2, 0xFF, 0x3F, 0x00, 0x00]);
+		// cmp ecx, expectedOp / jne legacy
+		code.AddRange([0x81, 0xF9, expectedOp, 0x00, 0x00, 0x00]);
+		Branch(legacyFixups, 0x75);
+		// cmp edx, 3 / jne slow: five dwords.
+		code.AddRange([0x83, 0xFA, 0x03]);
+		Branch(slowPathFixups, 0x75);
+		// eax = [rdi + 16]; ecx = ((eax & 0x3FFF) + esi) & 0x3FFF; [rdi + 16] = (eax & ~0x3FFF) | ecx
+		code.AddRange([0x8B, 0x47, 0x10]);
+		code.AddRange([0x89, 0xC1, 0x81, 0xE1, 0xFF, 0x3F, 0x00, 0x00, 0x01, 0xF1, 0x81, 0xE1, 0xFF, 0x3F, 0x00, 0x00]);
+		code.AddRange([0x25, 0x00, 0xC0, 0xFF, 0xFF, 0x09, 0xC8, 0x89, 0x47, 0x10]);
+		// xor eax, eax / ret
+		code.AddRange([0x31, 0xC0, 0xC3]);
+
+		var legacyOffset = code.Count;
+		// cmp ecx, NOP / jne slow; cmp edx, 2 / jne slow: four dwords.
+		code.AddRange([0x83, 0xF9, 0x10]);
+		Branch(slowPathFixups, 0x75);
+		code.AddRange([0x83, 0xFA, 0x02]);
+		Branch(slowPathFixups, 0x75);
+		// ecx = (eax >> 2) & 0x3F; cmp ecx, expectedLegacyRegister / jne slow
+		code.AddRange([0x89, 0xC1, 0xC1, 0xE9, 0x02, 0x83, 0xE1, 0x3F, 0x83, 0xF9, expectedLegacyRegister]);
+		Branch(slowPathFixups, 0x75);
+		// add dword [rdi + 4], esi / xor eax, eax / ret
+		code.AddRange([0x01, 0x77, 0x04, 0x31, 0xC0, 0xC3]);
+
+		var slowPathOffset = code.Count;
+		foreach (var fixup in slowPathFixups)
+		{
+			code[fixup] = checked((byte)(slowPathOffset - (fixup + 1)));
+		}
+
+		foreach (var fixup in legacyFixups)
+		{
+			code[fixup] = checked((byte)(legacyOffset - (fixup + 1)));
 		}
 
 		// jmp qword [rip+0] with the absolute trampoline address after it.
