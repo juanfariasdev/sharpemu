@@ -34,6 +34,11 @@ public sealed partial class GpuCommandInterpreter
             throw _host.Fatal($"The wait compare function is unknown: function={compareFunction} address=0x{address:X16}.");
         }
 
+        if (!satisfied && TryReadOwnWrite(address, is64Bit, out var ownValue))
+        {
+            _ = WaitOperation.TryCompare(ownValue, reference, mask, compareFunction, out satisfied);
+        }
+
         if (!satisfied)
         {
             Suspend();
