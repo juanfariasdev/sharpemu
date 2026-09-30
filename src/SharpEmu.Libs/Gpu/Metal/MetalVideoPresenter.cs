@@ -556,6 +556,47 @@ internal static partial class MetalVideoPresenter
         }
     }
 
+    private static long _lastOverlayMemorySample;
+
+    // Metal has no allocation hook like the Vulkan device info, so the overlay reads the
+    // device's own total and sums the cached textures' allocations, once a second.
+    // Render thread only: the draw texture cache is not shared.
+    private static void SampleOverlayMemoryStatistics()
+    {
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (now - _lastOverlayMemorySample < System.Diagnostics.Stopwatch.Frequency)
+        {
+            return;
+        }
+
+        _lastOverlayMemorySample = now;
+        var allocatedSize = MetalNative.Selector("allocatedSize");
+        ulong imageBytes = 0;
+        int textureCount;
+        lock (_gate)
+        {
+            foreach (var image in _guestImages.Values)
+            {
+                imageBytes += TextureAllocatedBytes(image.Texture, allocatedSize) +
+                              TextureAllocatedBytes(image.SnapshotTexture, allocatedSize);
+            }
+
+            textureCount = _guestImages.Count;
+        }
+
+        foreach (var texture in _drawTextureCache.Values)
+        {
+            imageBytes += TextureAllocatedBytes(texture, allocatedSize);
+        }
+
+        textureCount += _drawTextureCache.Count;
+        var deviceBytes = (ulong)MetalNative.Send(_device, MetalNative.Selector("currentAllocatedSize"));
+        PerfOverlay.SetMetalMemoryStatistics(deviceBytes, imageBytes, textureCount);
+    }
+
+    private static ulong TextureAllocatedBytes(nint texture, nint allocatedSize) =>
+        texture == 0 ? 0 : (ulong)MetalNative.Send(texture, allocatedSize);
+
     // Uses the present pipeline with a viewport at the selected corner.
     private static void EncodeOverlay(nint encoder)
     {
@@ -582,6 +623,7 @@ internal static partial class MetalVideoPresenter
             pendingWork = _pendingGuestWorkCount;
         }
 
+        SampleOverlayMemoryStatistics();
         PerfOverlay.Fill(_overlayPixels, pendingWork, 0);
         ReplaceTextureContents(
             _overlayTexture,
