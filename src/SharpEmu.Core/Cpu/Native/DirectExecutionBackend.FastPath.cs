@@ -317,14 +317,25 @@ public sealed unsafe partial class DirectExecutionBackend
 	/// </summary>
 	internal static List<byte> EmitGuestMemoryCopyStub(nint fallbackTrampoline)
 	{
-		var code = new List<byte>(40);
+		var code = new List<byte>(56);
+		var slowPathFixups = new List<int>();
+		// mov rcx, rdi / shr rcx, 32 / jz slow; mov rcx, rsi / shr rcx, 32 / jz slow: guest memory
+		// never lies in the low 4 GiB (__PAGEZERO on macOS x64). A title that copies through a
+		// null-based pointer gets the managed export's refusal instead of a host write there.
+		code.AddRange([0x48, 0x89, 0xF9, 0x48, 0xC1, 0xE9, 0x20, 0x74, 0x00]);
+		slowPathFixups.Add(code.Count - 1);
+		code.AddRange([0x48, 0x89, 0xF1, 0x48, 0xC1, 0xE9, 0x20, 0x74, 0x00]);
+		slowPathFixups.Add(code.Count - 1);
 		// mov rcx, rdi / sub rcx, rsi / cmp rcx, rdx / jb slow: dst - src < n (unsigned) is
 		// exactly a destination in (src, src + n) or equal to src with a non-empty copy.
 		code.AddRange([0x48, 0x89, 0xF9, 0x48, 0x29, 0xF1, 0x48, 0x39, 0xD1, 0x72, 0x00]);
-		var slowPathFixup = code.Count - 1;
+		slowPathFixups.Add(code.Count - 1);
 		// mov rax, rdi / mov rcx, rdx / rep movsb / ret
 		code.AddRange([0x48, 0x89, 0xF8, 0x48, 0x89, 0xD1, 0xF3, 0xA4, 0xC3]);
-		code[slowPathFixup] = checked((byte)(code.Count - (slowPathFixup + 1)));
+		foreach (var fixup in slowPathFixups)
+		{
+			code[fixup] = checked((byte)(code.Count - (fixup + 1)));
+		}
 		// jmp qword [rip+0] with the absolute trampoline address after it.
 		code.AddRange([0xFF, 0x25, 0x00, 0x00, 0x00, 0x00]);
 		code.AddRange(BitConverter.GetBytes((long)fallbackTrampoline));
@@ -348,9 +359,10 @@ public sealed unsafe partial class DirectExecutionBackend
 			slowPathFixups.Add(code.Count - 1);
 		}
 
-		// cmp rdi, 0x1000 / jb slow: the null page.
-		code.AddRange([0x48, 0x81, 0xFF, 0x00, 0x10, 0x00, 0x00]);
-		EmitBranchToSlowPath(0x72);
+		// mov rcx, rdi / shr rcx, 32 / jz slow: the null page and the rest of the low 4 GiB,
+		// which never hold guest memory on macOS x64.
+		code.AddRange([0x48, 0x89, 0xF9, 0x48, 0xC1, 0xE9, 0x20]);
+		EmitBranchToSlowPath(0x74);
 		// mov rcx, rdi / shr rcx, 47 / jnz slow: a non-canonical destination.
 		code.AddRange([0x48, 0x89, 0xF9, 0x48, 0xC1, 0xE9, 0x2F]);
 		EmitBranchToSlowPath(0x75);
@@ -393,9 +405,9 @@ public sealed unsafe partial class DirectExecutionBackend
 			fixups.Add(code.Count - 1);
 		}
 
-		// cmp rdi, 0x1000 / jb slow
-		code.AddRange([0x48, 0x81, 0xFF, 0x00, 0x10, 0x00, 0x00]);
-		Branch(slowPathFixups, 0x72);
+		// mov rax, rdi / shr rax, 32 / jz slow: below 4 GiB is never guest memory here.
+		code.AddRange([0x48, 0x89, 0xF8, 0x48, 0xC1, 0xE8, 0x20]);
+		Branch(slowPathFixups, 0x74);
 		// mov rax, rdi / shr rax, 47 / jnz slow
 		code.AddRange([0x48, 0x89, 0xF8, 0x48, 0xC1, 0xE8, 0x2F]);
 		Branch(slowPathFixups, 0x75);
