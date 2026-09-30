@@ -152,15 +152,19 @@ internal sealed partial class MetalCommandStreamHost : AgcExports.TranslatingCom
     public override ulong PrepareFlip(int handle, int index, int flipMode, long flipArgument)
     {
         var requestId = base.PrepareFlip(handle, index, flipMode, flipArgument);
-        if (VideoOutExports.TryGetDisplayBufferInfo(handle, index, out var displayBuffer))
-        {
-            _ = MetalVideoPresenter.TrySubmitOrderedGuestImageFlip(
+        if (VideoOutExports.TryGetDisplayBufferInfo(handle, index, out var displayBuffer) &&
+            MetalVideoPresenter.TrySubmitOrderedGuestImageFlip(
                 handle,
                 index,
                 displayBuffer.Address,
                 displayBuffer.Width,
                 displayBuffer.Height,
-                displayBuffer.PitchInPixel);
+                displayBuffer.PitchInPixel))
+        {
+            // Feeds the overlay FPS and SHARPEMU_LOG_VIDEOOUT_FPS, as the Vulkan capture does.
+            VideoOutExports.TraceGpuFlip(
+                _context.Memory, handle, index, flipMode, flipArgument, displayBuffer.Address,
+                VideoOutExports.GetFlipEventCount(requestId));
         }
 
         return requestId;
