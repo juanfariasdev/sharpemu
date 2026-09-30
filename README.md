@@ -116,6 +116,17 @@ release includes the MoltenVK Vulkan implementation.
 4. Build the project: `dotnet build` or `dotnet publish`
 5. Build artifacts will be located in the `artifacts` directory.
 
+`dotnet build` defaults to the Debug configuration, which turns off JIT
+optimizations in every SharpEmu assembly. To play or to measure performance,
+build Release instead:
+
+```bash
+dotnet build src/SharpEmu.CLI/SharpEmu.CLI.csproj -c Release -r osx-x64   # or win-x64 / linux-x64
+```
+
+On macOS, run `scripts/fetch-macos-moltenvk.sh` after building to stage MoltenVK
+next to the Debug and Release builds.
+
 ## Disclaimer
 
 SharpEmu is an experimental emulator intended for research and educational purposes.
