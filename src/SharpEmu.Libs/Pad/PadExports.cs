@@ -708,7 +708,7 @@ public static class PadExports
 
         var input = HostPlatform.Current.Input;
         var acceptsKeyboardInput = input.IsHostWindowFocused();
-        var buttons = acceptsKeyboardInput ? ReadKeyboardButtons(input) : 0;
+        var buttons = (acceptsKeyboardInput ? ReadKeyboardButtons(input) : 0) | PadAutoPress.Buttons();
         var leftX = acceptsKeyboardInput ? ReadAnalogStick(input.IsKeyDown(0x41), input.IsKeyDown(0x44)) : (byte)128;
         var leftY = acceptsKeyboardInput ? ReadAnalogStick(input.IsKeyDown(0x57), input.IsKeyDown(0x53)) : (byte)128;
         var rightX = acceptsKeyboardInput ? ReadAnalogStick(input.IsKeyDown(0x4A), input.IsKeyDown(0x4C)) : (byte)128;
