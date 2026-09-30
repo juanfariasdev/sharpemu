@@ -26,6 +26,11 @@ public static class HostSystemInfo
 
     private static string GetCpuName()
     {
+        if (OperatingSystem.IsMacOS() && ReadSysctlString("machdep.cpu.brand_string") is { } macName)
+        {
+            return $"{macName} ({Environment.ProcessorCount} logical processors)";
+        }
+
         if (!OperatingSystem.IsWindows())
         {
             return $"{Environment.ProcessorCount} logical processors";
@@ -58,6 +63,11 @@ public static class HostSystemInfo
 
     private static string GetPreferredGpuName()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            return GetMacGpuName();
+        }
+
         if (!OperatingSystem.IsWindows())
         {
             return "unknown";
@@ -97,6 +107,17 @@ public static class HostSystemInfo
         }
     }
 
+    private static string GetMacGpuName()
+    {
+        var model = MacAccelerator.TryGetModel();
+        if (model is null)
+        {
+            return "unknown";
+        }
+
+        return MacAccelerator.TryGetCoreCount() is { } cores ? $"{model} ({cores}-core GPU)" : model;
+    }
+
     private static int ScoreGpu(string? name)
     {
         if (string.IsNullOrWhiteSpace(name) ||
@@ -124,6 +145,16 @@ public static class HostSystemInfo
 
     private static string GetMemoryDescription()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            ulong totalBytes = 0;
+            nuint size = sizeof(ulong);
+            if (sysctlbyname("hw.memsize", ref totalBytes, ref size, 0, 0) == 0 && totalBytes > 0)
+            {
+                return FormatMemory(totalBytes);
+            }
+        }
+
         if (OperatingSystem.IsWindows())
         {
             try
@@ -134,9 +165,7 @@ public static class HostSystemInfo
                 };
                 if (GlobalMemoryStatusEx(ref status))
                 {
-                    var megabytes = status.ullTotalPhys / (1024 * 1024);
-                    var gigabytes = status.ullTotalPhys / (1024d * 1024 * 1024);
-                    return $"{megabytes:N0} MB ({gigabytes:N1} GB)";
+                    return FormatMemory(status.ullTotalPhys);
                 }
             }
             catch (Exception)
@@ -146,6 +175,39 @@ public static class HostSystemInfo
         }
 
         return "unknown";
+    }
+
+    private static string FormatMemory(ulong totalBytes)
+    {
+        var megabytes = totalBytes / (1024 * 1024);
+        var gigabytes = totalBytes / (1024d * 1024 * 1024);
+        return $"{megabytes:N0} MB ({gigabytes:N1} GB)";
+    }
+
+    private static string? ReadSysctlString(string name)
+    {
+        try
+        {
+            nuint size = 0;
+            if (sysctlbyname(name, null, ref size, 0, 0) != 0 || size == 0 || size > 1024)
+            {
+                return null;
+            }
+
+            var buffer = new byte[size];
+            if (sysctlbyname(name, buffer, ref size, 0, 0) != 0)
+            {
+                return null;
+            }
+
+            var text = System.Text.Encoding.UTF8.GetString(buffer, 0, (int)size).TrimEnd('\0').Trim();
+            return text.Length == 0 ? null : text;
+        }
+        catch (Exception)
+        {
+            // Hardware information is diagnostic only.
+            return null;
+        }
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -184,4 +246,12 @@ public static class HostSystemInfo
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx buffer);
+
+    [DllImport("libSystem.B.dylib")]
+    private static extern int sysctlbyname(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string name, byte[]? value, ref nuint size, nint newValue, nuint newSize);
+
+    [DllImport("libSystem.B.dylib")]
+    private static extern int sysctlbyname(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string name, ref ulong value, ref nuint size, nint newValue, nuint newSize);
 }
