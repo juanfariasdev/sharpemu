@@ -80,6 +80,9 @@ public sealed unsafe partial class DirectExecutionBackend
 	private static bool _posixRawRecoveryEnabled;
 	private static bool _posixSignalWarmup;
 	private static readonly nint[] _posixPreviousActions = new nint[32];
+	// The sigaction entry: HandlePosixSignal itself, or on macOS a trampoline that first
+	// moves off a guest stack (see CreatePosixSignalTrampoline).
+	private static nint _posixSignalEntry;
 	private static int _posixSignalTraceCount;
 	private static long _perfSignalCount;
 	private static readonly bool _perfSignalCounter =
@@ -116,6 +119,8 @@ public sealed unsafe partial class DirectExecutionBackend
 
 		WarmUpPosixSignalPath();
 		SharpEmu.HLE.GuestImageWriteTracker.WarmUp();
+		_posixSignalEntry = CreatePosixSignalTrampoline(_hostRspSlotTlsIndex);
+		WarmUpPosixSignalTrampoline();
 
 		if (!InstallPosixSignalHandler(PosixSigSegv) ||
 			!InstallPosixSignalHandler(PosixSigBus) ||
@@ -187,11 +192,137 @@ public sealed unsafe partial class DirectExecutionBackend
 		}
 	}
 
+	// A guest fault is delivered on the guest stack, so HandlePosixSignal ran there: managed
+	// frames on a stack the runtime does not know, and above the host stack in address. A GC
+	// that suspended the thread inside the handler walked its frames out of order and skipped
+	// the host frames below the guest entry (RunGuestThread and its callers), leaving their
+	// locals pointing at objects the GC had moved. Import calls already switch to the host
+	// stack for the same reason; this does the same for signals on macOS.
+	//
+	// The entry stub of the innermost guest entry saved the host RSP in the storage the
+	// _hostRspSlotTlsIndex slot points to. The host stack below it is unused while guest code
+	// runs. The trampoline switches there when RSP is more than 64 MiB away from that saved
+	// RSP (a guest stack), and otherwise (a fault on the host stack, or no guest entry on this
+	// thread) jumps straight to the managed handler. The ucontext and siginfo pointers stay
+	// valid: they point into the signal frame the kernel left on the original stack.
+	private static nint CreatePosixSignalTrampoline(uint hostRspSlotKey)
+	{
+		var handler = (nint)(delegate* unmanaged<int, nint, nint, void>)&HandlePosixSignal;
+		// gs:[key * 8] is the pthread TSD slot on macOS x64 (the native stubs read theirs the same way).
+		if (!OperatingSystem.IsMacOS() || hostRspSlotKey >= 512)
+		{
+			return 0;
+		}
+
+		var page = (byte*)HostMemory.Alloc(null, 4096, HostMemory.MEM_COMMIT | HostMemory.MEM_RESERVE,
+			HostMemory.PAGE_EXECUTE_READWRITE);
+		if (page == null)
+		{
+			return 0;
+		}
+
+		var code = new System.Collections.Generic.List<byte>(96);
+		var directFixups = new System.Collections.Generic.List<int>();
+		void Jcc(byte opcode)
+		{
+			code.Add(opcode);
+			code.Add(0);
+			directFixups.Add(code.Count - 1);
+		}
+
+		// mov rax, gs:[key * 8]: this thread's host-RSP storage, or 0
+		code.AddRange([0x65, 0x48, 0x8B, 0x04, 0x25]);
+		code.AddRange(BitConverter.GetBytes(hostRspSlotKey * 8));
+		code.AddRange([0x48, 0x85, 0xC0]); Jcc(0x74);          // test rax, rax / jz direct
+		code.AddRange([0x4C, 0x8B, 0x10]);                     // mov r10, [rax]: saved host RSP
+		code.AddRange([0x4D, 0x85, 0xD2]); Jcc(0x74);          // test r10, r10 / jz direct
+		code.AddRange([0x4D, 0x89, 0xD3]);                     // mov r11, r10
+		code.AddRange([0x49, 0x29, 0xE3]);                     // sub r11, rsp
+		code.AddRange([0x49, 0x81, 0xC3, 0x00, 0x00, 0x00, 0x04]); // add r11, 64 MiB
+		code.AddRange([0x49, 0x81, 0xFB, 0x00, 0x00, 0x00, 0x08]); // cmp r11, 128 MiB
+		Jcc(0x72);                                             // jb direct: already on the host stack
+		code.AddRange([0x49, 0x89, 0xE3]);                     // mov r11, rsp
+		code.AddRange([0x49, 0x8D, 0xA2]);                     // lea rsp, [r10 - 0x2000]
+		code.AddRange(BitConverter.GetBytes(-0x2000));
+		code.AddRange([0x48, 0x83, 0xE4, 0xF0]);               // and rsp, -16
+		code.AddRange([0x41, 0x53]);                           // push r11
+		code.AddRange([0x48, 0x83, 0xEC, 0x08]);               // sub rsp, 8
+		code.AddRange([0x48, 0xB8]);                           // mov rax, handler
+		code.AddRange(BitConverter.GetBytes((long)handler));
+		code.AddRange([0xFF, 0xD0]);                           // call rax
+		code.AddRange([0x48, 0x83, 0xC4, 0x08]);               // add rsp, 8
+		code.Add(0x5C);                                        // pop rsp: back to the signal frame's stack
+		code.Add(0xC3);                                        // ret
+		foreach (var fixup in directFixups)
+		{
+			code[fixup] = checked((byte)(code.Count - (fixup + 1)));
+		}
+		code.AddRange([0x48, 0xB8]);                           // direct: mov rax, handler
+		code.AddRange(BitConverter.GetBytes((long)handler));
+		code.AddRange([0xFF, 0xE0]);                           // jmp rax
+
+		for (var index = 0; index < code.Count; index++)
+		{
+			page[index] = code[index];
+		}
+
+		if (!HostMemory.Protect(page, 4096, HostMemory.PAGE_EXECUTE_READ, out _))
+		{
+			return 0;
+		}
+
+		HostMemory.FlushInstructionCache(page, (nuint)code.Count);
+		return (nint)page;
+	}
+
+	// Rosetta 2 cannot enter x86 code from a signal that it has never run, so both paths of the
+	// trampoline run once here, in warm-up mode, before sigaction points at it.
+	private void WarmUpPosixSignalTrampoline()
+	{
+		if (_posixSignalEntry == 0)
+		{
+			return;
+		}
+
+		byte* testUserContext = stackalloc byte[512];
+		new Span<byte>(testUserContext, 512).Clear();
+		byte* testMachineContext = stackalloc byte[1024];
+		new Span<byte>(testMachineContext, 1024).Clear();
+		*(byte**)(testUserContext + DarwinUcontextMcontextOffset) = testMachineContext;
+		*(ulong*)(testUserContext + DarwinUserContextMachineContextSizeOffset) = 1024;
+
+		const int switchStackBytes = 512 * 1024;
+		var switchStack = (byte*)NativeMemory.Alloc(switchStackBytes);
+		var previousSlot = TlsGetValue(_hostRspSlotTlsIndex);
+		ulong* storage = stackalloc ulong[4];
+		var entry = (delegate* unmanaged<int, nint, nint, void>)_posixSignalEntry;
+		_posixSignalWarmup = true;
+		try
+		{
+			storage[0] = 0;
+			TlsSetValue(_hostRspSlotTlsIndex, (nint)storage);
+			entry(PosixSigSegv, 0, (nint)testUserContext);
+			if (switchStack != null)
+			{
+				storage[0] = (ulong)(switchStack + switchStackBytes);
+				entry(PosixSigSegv, 0, (nint)testUserContext);
+			}
+		}
+		finally
+		{
+			_posixSignalWarmup = false;
+			TlsSetValue(_hostRspSlotTlsIndex, previousSlot);
+			NativeMemory.Free(switchStack);
+		}
+	}
+
 	private static bool InstallPosixSignalHandler(int signal)
 	{
 		byte* action = stackalloc byte[PosixSigactionSize];
 		new Span<byte>(action, PosixSigactionSize).Clear();
-		*(nint*)action = (nint)(delegate* unmanaged<int, nint, nint, void>)&HandlePosixSignal;
+		*(nint*)action = _posixSignalEntry != 0
+			? _posixSignalEntry
+			: (nint)(delegate* unmanaged<int, nint, nint, void>)&HandlePosixSignal;
 		// No SA_ONSTACK: the runtime's alternate stacks are far too small for
 		// the recovery/diagnostic path (JIT compilation of cold handler code
 		// can run inside the signal frame). Guest faults deliver onto the 2MB
