@@ -38,6 +38,9 @@ internal sealed partial class ShaderPipelineCache : IShaderPipelineProvider
         _programs = new ShaderProgramCache(context, compiler, host);
     }
 
+    private readonly Dictionary<ulong, (RegisteredShader Registered, ulong Hash)> _resolvedSources = new();
+    private long _resolvedSourcesEpoch = -1;
+
     public ShaderProgramCache Programs => _programs;
 
     public int GraphicsPipelineCount => _graphicsPipelines.Count;
@@ -64,8 +67,24 @@ internal sealed partial class ShaderPipelineCache : IShaderPipelineProvider
     private ShaderSource PrepareSource(ulong codeAddress, ShaderStage stage, string label, UserScalarRegisters registers, uint declaredCount, bool probeWrittenRegisters, uint userDataBase)
     {
         using var profileScope = RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.ProgramSourceRead);
-        var registered = _registry.Require(codeAddress, label);
-        var hash = ShaderIdentity.Compute(_context.Memory, codeAddress, registered.CodeRanges, label);
+        // Every draw of a frame resolves the same few shaders, each through several guest reads
+        // and a content hash. A shader's registration and code cannot change within one
+        // submission, so each is resolved once per submission.
+        var epoch = GpuCommands.CommandStreamQueue.SubmissionEpoch;
+        if (epoch != _resolvedSourcesEpoch)
+        {
+            _resolvedSources.Clear();
+            _resolvedSourcesEpoch = epoch;
+        }
+
+        if (!_resolvedSources.TryGetValue(codeAddress, out var resolved))
+        {
+            var resolvedShader = _registry.Require(codeAddress, label);
+            resolved = (resolvedShader, ShaderIdentity.Compute(_context.Memory, codeAddress, resolvedShader.CodeRanges, label));
+            _resolvedSources[codeAddress] = resolved;
+        }
+
+        var (registered, hash) = resolved;
         var userData = UserData(registers, declaredCount, probeWrittenRegisters, codeAddress, label);
         return new ShaderSource(registered, hash, userData, userDataBase, stage);
     }
