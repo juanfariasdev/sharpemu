@@ -2292,12 +2292,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			}
 
 			Emit(0x49); Emit(0x89); Emit(0xC3); // mov r11, rax
-			// Fiber switches replace the guest stack without passing through a
-			// guest-entry stub, so keep the Windows TEB bounds in sync here.
-			EmitLoadFromR11Disp32(10, 160);     // r10 = target stack top
-			EmitStackBound(code, ref offset, 10, 8, store: true);
-			EmitLoadFromR11Disp32(10, 168);     // r10 = target stack bottom
-			EmitStackBound(code, ref offset, 10, 16, store: true);
+			EmitFiberStackBounds(code, ref offset);
 			// A new >=3.50 fiber receives the SDK-defined MXCSR verbatim. A
 			// resumed fiber follows _sceFiberLongJmp: preserve status bits 0-5
 			// while restoring the saved control bits.
