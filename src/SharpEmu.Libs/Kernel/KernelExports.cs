@@ -8,6 +8,9 @@ namespace SharpEmu.Libs.Kernel;
 
 public static class KernelExports
 {
+    // Read once: the check runs on every call through this path.
+    private static readonly bool _envLogPthreads = string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_PTHREADS"), "1", StringComparison.Ordinal);
+
     private static readonly object _cxaGate = new();
     private static readonly List<CxaDestructorEntry> _cxaDestructors = new();
     private static readonly object _coredumpGate = new();
@@ -502,7 +505,7 @@ public static class KernelExports
 
     private static bool ShouldTracePthread()
     {
-        return string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_PTHREADS"), "1", StringComparison.Ordinal);
+        return _envLogPthreads;
     }
 
     [SysAbiExport(

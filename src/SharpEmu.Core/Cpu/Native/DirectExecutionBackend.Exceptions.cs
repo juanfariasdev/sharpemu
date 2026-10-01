@@ -18,6 +18,11 @@ public sealed partial class DirectExecutionBackend
 {
 	private const ulong LazyCommitWindowBytes = 0x0200_0000UL;
 	private static int _lazyCommitTraceCount;
+	// Read once: both switches are checked on the page-fault path.
+	private static readonly bool _guestAllocatorHoleRecoveryDisabled =
+		string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_DISABLE_GUEST_ALLOCATOR_HOLE_RECOVERY"), "1", StringComparison.Ordinal);
+	private static readonly bool _logEveryLazyCommit =
+		string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_LAZY_COMMIT"), "1", StringComparison.Ordinal);
 	private static int _guestAllocatorHoleRecoveries;
 	private static int _auxiliaryThreadExecuteFaultRecoveries;
 	private static int _auxiliaryThreadExecuteFaultSkips;
@@ -677,10 +682,7 @@ public sealed partial class DirectExecutionBackend
 		void* contextRecord,
 		ulong rip)
 	{
-		if (string.Equals(
-				Environment.GetEnvironmentVariable("SHARPEMU_DISABLE_GUEST_ALLOCATOR_HOLE_RECOVERY"),
-				"1",
-				StringComparison.Ordinal) ||
+		if (_guestAllocatorHoleRecoveryDisabled ||
 			exceptionRecord->NumberParameters < 2 ||
 			exceptionRecord->ExceptionInformation[0] != 0 ||
 			exceptionRecord->ExceptionInformation[1] != 8 ||
@@ -1923,12 +1925,7 @@ public sealed partial class DirectExecutionBackend
 
 	private static bool ShouldTraceLazyCommit(int traceIndex)
 	{
-		if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_LAZY_COMMIT"), "1", StringComparison.Ordinal))
-		{
-			return true;
-		}
-
-		return traceIndex <= 16 || traceIndex % 256 == 0;
+		return _logEveryLazyCommit || traceIndex <= 16 || traceIndex % 256 == 0;
 	}
 
 	private static uint ResolveLazyCommitProtection(ulong accessType, uint allocationProtect)

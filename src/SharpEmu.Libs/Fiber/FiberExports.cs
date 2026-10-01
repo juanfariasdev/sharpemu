@@ -11,6 +11,9 @@ namespace SharpEmu.Libs.Fiber;
 
 public static class FiberExports
 {
+    // Read once: the check runs on every call through this path.
+    private static readonly bool _envLogFiber = string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_FIBER"), "1", StringComparison.Ordinal);
+
     private const int MaxNameLength = 31;
     private const int FiberInfoSize = 128;
     private const int FiberContextMinimumSize = 512;
@@ -1117,7 +1120,7 @@ public static class FiberExports
 
     private static void TraceFiber(string message)
     {
-        if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_FIBER"), "1", StringComparison.Ordinal))
+        if (_envLogFiber)
         {
             Console.Error.WriteLine($"[LOADER][TRACE] fiber.{message}");
         }

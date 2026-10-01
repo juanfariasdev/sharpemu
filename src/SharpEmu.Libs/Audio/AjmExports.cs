@@ -12,6 +12,9 @@ namespace SharpEmu.Libs.Audio;
 
 public static class AjmExports
 {
+    // Read once: the check runs on every call through this path.
+    private static readonly bool _envLogAjm = string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_AJM"), "1", StringComparison.Ordinal);
+
     private const int OrbisAjmErrorInvalidContext = unchecked((int)0x80930002);
     private const int OrbisAjmErrorInvalidInstance = unchecked((int)0x80930003);
     private const int OrbisAjmErrorInvalidParameter = unchecked((int)0x80930005);
@@ -118,7 +121,7 @@ public static class AjmExports
         }
 
         Contexts[contextId] = new AjmContextState();
-        if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_AJM"), "1", StringComparison.Ordinal))
+        if (_envLogAjm)
         {
             Console.Error.WriteLine(
                 $"[LOADER][TRACE] ajm.initialize reserved_or_options=0x{reservedOrOptions:X16} " +
@@ -231,7 +234,7 @@ public static class AjmExports
             }
         }
 
-        if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_AJM"), "1", StringComparison.Ordinal))
+        if (_envLogAjm)
         {
             Console.Error.WriteLine(
                 $"[LOADER][TRACE] ajm.module_register context={contextId} codec={codecType} reserved={reserved}");
@@ -965,7 +968,7 @@ public static class AjmExports
             address == 0 ||
             countOrSize == 0 ||
             countOrSize > MaxBufferDescriptors ||
-            !string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_AJM"), "1", StringComparison.Ordinal))
+            !_envLogAjm)
         {
             return;
         }
@@ -1424,7 +1427,7 @@ public static class AjmExports
 
     private static void Trace(string message)
     {
-        if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_AJM"), "1", StringComparison.Ordinal))
+        if (_envLogAjm)
         {
             Console.Error.WriteLine($"[LOADER][TRACE] ajm.{message}");
         }

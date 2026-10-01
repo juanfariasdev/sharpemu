@@ -19,6 +19,9 @@ namespace SharpEmu.Core.Cpu.Native;
 
 public sealed partial class DirectExecutionBackend
 {
+	// Read once: the check runs on every call through this path.
+	private static readonly bool _envLogExpectedImportResults = string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_EXPECTED_IMPORT_RESULTS"), "1", StringComparison.Ordinal);
+
 	// The native import trampoline keeps the original guest GPR stack layout at
 	// argPackPtr and stores volatile SysV-only state immediately below it.  This
 	// lets the managed gateway observe AL (the variadic vector-argument count)
@@ -1671,10 +1674,7 @@ public sealed partial class DirectExecutionBackend
 	}
 
 	private static bool ShouldLogExpectedImportResults() =>
-		string.Equals(
-			Environment.GetEnvironmentVariable("SHARPEMU_LOG_EXPECTED_IMPORT_RESULTS"),
-			"1",
-			StringComparison.Ordinal);
+		_envLogExpectedImportResults;
 
 	private static bool IsExpectedFileProbeNotFoundNid(string nid) =>
 		nid is
