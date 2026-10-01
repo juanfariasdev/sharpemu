@@ -169,6 +169,7 @@
   "Options.Env.Bthid.Desc": "휠/FFB 미들웨어가 무한 대기하는 타이틀을 위해 블루투스 HID를 사용 불가로 보고합니다.\n평소에는 꺼 두세요. 초기화에 실패하면 멈추는 타이틀도 있습니다.",
   "Options.Env.LoopGuard.Desc": "같은 호출을 너무 오래 반복하는 타이틀을 강제 종료하지 않습니다.\n게임이 로딩 중 저절로 종료될 때 시도해 보세요.",
   "Options.Env.WritableApp0.Desc": "타이틀이 설치 폴더 안에 파일을 만들고 쓸 수 있도록 허용합니다.\n세이브나 설정 데이터를 /app0 아래에 쓰는 비패키지 덤프에 필요합니다.",
+  "Options.Env.NoFlipPacing.Desc": "에뮬레이션된 vblank를 기다리지 않고 타이틀이 보낸 프레임을 바로 표시합니다.\n게임이 60 fps를 유지하지 못해 30으로 떨어질 때 프레임 레이트가 올라갑니다. VSync를 끄면 주사율보다 높아질 수 있습니다. 티어링이나 고르지 않은 움직임이 생길 수 있습니다.",
   "Options.Env.VkValidation.Desc": "GPU 디버깅을 위한 Vulkan 검증 레이어를 활성화합니다.\n느립니다. Vulkan SDK가 설치되어 있어야 합니다.",
   "Options.Env.DumpSpirv.Desc": "AGC 셰이더와 SPIR-V 변환 결과를 shader-dumps 폴더에 저장합니다.\n셰이더나 렌더링 버그를 보고할 때 사용하세요.",
   "Options.Env.LogDirectMemory.Desc": "다이렉트 메모리 할당과 실패를 콘솔에 기록합니다.\n게임이 부팅 중 중단되거나 종료될 때 사용하세요.",

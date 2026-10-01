@@ -39,6 +39,7 @@
   "Options.Env.Bthid.Desc": "Sükan/FFB üçün aralıq proqram təminatı fasiləsiz sorğu göndərən oyunlarda Bluetooth HID əlçatmaz kimi bildirilsin.\nAdətən söndürülmüş saxlayın. İlkin hazırlıq uğursuz olduqda bəzi oyunlar donur.",
   "Options.Env.LoopGuard.Desc": "Eyni çağırışı həddindən artıq uzun müddət təkrarlayan oyunlar məcburi bağlanmasın.\nOyun yüklənərkən öz-özünə bağlanırsa, bunu sınayın.",
   "Options.Env.WritableApp0.Desc": "Oyunlara quraşdırıldıqları qovluqda fayl yaratmağa və yazmağa icazə verilsin.\nYadda saxlanan oyun və ya konfiqurasiya məlumatlarını /app0 daxilinə yazan paketlənməmiş oyun nüsxələri üçün lazımdır.",
+  "Options.Env.NoFlipPacing.Desc": "Hər kadrı oyun onu göndərən kimi, emulyasiya olunan vblank-ı gözləmədən göstər.\nOyun 60 fps saxlaya bilməyib 30-a düşəndə kadr sürətini artırır; VSync söndürüləndə yenilənmə tezliyini keçə bilər. Təsvirin qırılmasına və ya qeyri-bərabər hərəkətə səbəb ola bilər.",
   "Options.Env.VkValidation.Desc": "GPU xətalarını araşdırmaq üçün Vulkan yoxlama qatlarını aktivləşdirin.\nİşi ləngidir. Vulkan SDK quraşdırılmalıdır.",
   "Options.Env.DumpSpirv.Desc": "AGC kölgələndiricilərini və onların SPIR-V formasına çevrilmiş nüsxələrini shader-dumps qovluğuna yazın.\nKölgələndirici və ya təsvirin yaradılması ilə bağlı xətaları bildirərkən istifadə edin.",
   "Options.Env.LogDirectMemory.Desc": "Birbaşa yaddaş ayırmalarını və uğursuzluqları konsola yazın.\nOyun başlanarkən qəfil dayandıqda və ya bağlandıqda istifadə edin.",

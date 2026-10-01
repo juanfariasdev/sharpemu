@@ -55,6 +55,7 @@
   "Options.Env.Bthid.Desc": "Zgłaszaj Bluetooth HID jako niedostępny dla tytułów, których middleware kierownicy/FFB odpytuje w nieskończoność.\nZostaw wyłączone normalnie. Niektóre tytuły zawieszają się, gdy inicjalizacja zawiedzie.",
   "Options.Env.LoopGuard.Desc": "Nie wymuszaj zamknięcia tytułów, które powtarzają to samo wywołanie zbyt długo.\nSpróbuj tego, gdy gra zamyka się sama podczas ładowania.",
   "Options.Env.WritableApp0.Desc": "Pozwól tytułom tworzyć i zapisywać pliki wewnątrz folderu instalacji.\nPotrzebne w przypadku niespakowanych zrzutów, które zapisują dane zapisu lub konfiguracji w /app0.",
+  "Options.Env.NoFlipPacing.Desc": "Wyświetlaj każdą klatkę, gdy tylko tytuł ją przekaże, bez czekania na emulowany vblank.\nZwiększa liczbę klatek, gdy gra nie utrzymuje 60 fps i spada do 30; przy wyłączonym VSync może przekroczyć częstotliwość odświeżania. Może powodować tearing lub nierówny ruch.",
   "Options.Env.VkValidation.Desc": "Włącz warstwy walidacji Vulkan do debugowania GPU.\nWolne. Wymaga zainstalowanego Vulkan SDK.",
   "Options.Env.DumpSpirv.Desc": "Zrzuć shadery AGC i ich translacje SPIR-V do folderu shader-dumps.\nUżyj przy zgłaszaniu błędów shaderów lub renderowania.",
   "Options.Env.LogDirectMemory.Desc": "Loguj alokacje pamięci bezpośredniej i błędy do konsoli.\nUżyj, gdy gra przerywa działanie lub zamyka się podczas uruchamiania.",

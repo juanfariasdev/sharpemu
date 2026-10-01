@@ -185,6 +185,7 @@
 
   "Library.Context.GameSettings": "Configurações do jogo…",
   "Options.Env.WritableApp0.Desc": "Permite que os jogos criem e gravem arquivos dentro da própria pasta de instalação.\nNecessário para dumps não empacotados que gravam seus saves ou configurações em /app0.",
+  "Options.Env.NoFlipPacing.Desc": "Exibe cada quadro assim que o jogo o envia, sem esperar o vblank emulado.\nAumenta o FPS quando o jogo não segura 60 fps e cai para 30; com o VSync desligado, pode passar da taxa de atualização. Pode causar tearing ou movimento irregular.",
   "Options.Env.LogIo.Desc": "Registra no console a abertura e leitura de arquivos e a resolução de caminhos.\nUse quando um jogo não encontrar seus arquivos de dados durante a inicialização.",
   "Common.Save": "Salvar",
   "Common.Cancel": "Cancelar",

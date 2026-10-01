@@ -185,6 +185,7 @@
 
   "Library.Context.GameSettings": "Paramètres du jeu…",
   "Options.Env.WritableApp0.Desc": "Autoriser les jeux à créer et écrire des fichiers dans leur dossier d’installation.\nNécessaire pour les dumps non empaquetés qui écrivent leurs sauvegardes ou leur configuration sous /app0.",
+  "Options.Env.NoFlipPacing.Desc": "Affiche chaque image dès que le jeu la soumet, sans attendre le vblank émulé.\nAugmente la fréquence d’images quand un jeu ne tient pas 60 fps et tombe à 30 ; avec la VSync désactivée, elle peut dépasser la fréquence de rafraîchissement. Peut provoquer du tearing ou un mouvement irrégulier.",
   "Options.Env.LogIo.Desc": "Journaliser l’ouverture et la lecture des fichiers ainsi que la résolution des chemins dans la console.\nÀ utiliser quand un jeu ne trouve pas ses fichiers de données au démarrage.",
   "Common.Save": "Enregistrer",
   "Common.Cancel": "Annuler",

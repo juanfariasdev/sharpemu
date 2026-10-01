@@ -343,6 +343,8 @@ public partial class MainWindow : Window
             SetEnvironmentToggle("SHARPEMU_DISABLE_IMPORT_LOOP_GUARD", EnvLoopGuardToggle.IsChecked == true);
         EnvWritableApp0Toggle.IsCheckedChanged += (_, _) =>
             SetEnvironmentToggle("SHARPEMU_WRITABLE_APP0", EnvWritableApp0Toggle.IsChecked == true);
+        EnvNoFlipPacingToggle.IsCheckedChanged += (_, _) =>
+            SetEnvironmentToggle("SHARPEMU_NO_FLIP_PACING", EnvNoFlipPacingToggle.IsChecked == true);
         BinkPlaybackBox.SelectionChanged += (_, _) =>
             _settings.BinkPlaybackMode = SelectedComboText(BinkPlaybackBox, "Host");
         EnvVkValidationToggle.IsCheckedChanged += (_, _) =>
@@ -1309,6 +1311,7 @@ public partial class MainWindow : Window
         EnvBthidToggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_BTHID_UNAVAILABLE");
         EnvLoopGuardToggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_DISABLE_IMPORT_LOOP_GUARD");
         EnvWritableApp0Toggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_WRITABLE_APP0");
+        EnvNoFlipPacingToggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_NO_FLIP_PACING");
         BinkPlaybackBox.SelectedIndex = ChoiceIndex(_settings.BinkPlaybackMode, "Host", "Guest", "Skip");
         EnvVkValidationToggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_VK_VALIDATION");
         EnvDumpSpirvToggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_DUMP_SPIRV");

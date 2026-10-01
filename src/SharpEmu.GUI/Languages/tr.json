@@ -208,6 +208,7 @@
   "Options.Env.Bthid.Desc": "Direksiyon/FFB katmanı sonsuza kadar bekleyen oyunlar için Bluetooth HID'i kullanılamıyor olarak bildir.\nNormalde kapalı bırakın. Bazı oyunlar başlatma başarısız olduğunda donar.",
   "Options.Env.LoopGuard.Desc": "Aynı çağrıyı uzun süre tekrarlayan oyunları zorla kapatma.\nBir oyun yükleme sırasında kendiliğinden kapanıyorsa bunu deneyin.",
   "Options.Env.WritableApp0.Desc": "Oyunların kurulum klasörlerinde dosya oluşturup yazmasına izin ver.\nKayıt veya yapılandırma verisini /app0 altına yazan paketlenmemiş dump'lar için gereklidir.",
+  "Options.Env.NoFlipPacing.Desc": "Her kareyi, oyun gönderir göndermez, öykünülen vblank'i beklemeden göster.\nBir oyun 60 fps'yi koruyamayıp 30'a düştüğünde kare hızını artırır; VSync kapalıyken yenileme hızının üzerine çıkabilir. Görüntü yırtılmasına veya düzensiz harekete neden olabilir.",
   "Options.Env.VkValidation.Desc": "GPU hata ayıklaması için Vulkan doğrulama katmanlarını etkinleştir.\nYavaştır. Vulkan SDK'nın kurulu olması gerekir.",
   "Options.Env.DumpSpirv.Desc": "AGC shader'larını ve SPIR-V çevirilerini shader-dumps klasörüne kaydet.\nShader veya görüntü hatalarını bildirirken kullanın.",
   "Options.Env.LogDirectMemory.Desc": "Doğrudan bellek tahsislerini ve hatalarını konsola günlükle.\nBir oyun açılış sırasında çöküyor veya kapanıyorsa kullanın.",
