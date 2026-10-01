@@ -163,10 +163,15 @@ internal static unsafe partial class VulkanVideoPresenter
             }
 
             var framebufferSize = GetFramebufferSize();
+            // The swapchain takes the surface's current extent, which can disagree with the
+            // window's pixel size while macOS constrains a window larger than the screen.
+            // Recreating again for the same pixel size cannot resolve that, and doing it on
+            // every tick starves presentation, so wait for the pixel size to move.
             var drawableSizeChanged =
-                (uint)Math.Max(framebufferSize.X, 1) != _extent.Width ||
-                (uint)Math.Max(framebufferSize.Y, 1) != _extent.Height;
-            var hdrStateChanged = _window.ConsumeHdrStateChange();
+                ((uint)Math.Max(framebufferSize.X, 1) != _extent.Width ||
+                 (uint)Math.Max(framebufferSize.Y, 1) != _extent.Height) &&
+                framebufferSize != _framebufferSizeAtLastRecreate;
+            var hdrStateChanged = _window.ConsumeHdrStateChange() && HdrStateChangeAffectsSwapchain();
             var guestHdrRequestChanged =
                 _videoOptions.HdrMode == HostHdrMode.Auto &&
                 _hdrRequestedForSwapchain !=
@@ -177,6 +182,7 @@ internal static unsafe partial class VulkanVideoPresenter
                 hdrStateChanged && _videoOptions.HdrMode != HostHdrMode.Off ||
                 guestHdrRequestChanged)
             {
+                _framebufferSizeAtLastRecreate = framebufferSize;
                 RecreateSwapchainResources(
                     guestHdrRequestChanged
                         ? "guest HDR output change"
