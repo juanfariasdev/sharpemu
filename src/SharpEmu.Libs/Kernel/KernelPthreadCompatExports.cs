@@ -1054,12 +1054,7 @@ public static class KernelPthreadCompatExports
         }
 
         if (canCooperativelyBlock && waiter is not null &&
-            GuestThreadExecution.RequestCurrentThreadBlock(
-                ctx,
-                "pthread_mutex_lock",
-                waiter.WakeKey,
-                () => CompleteBlockedMutexLock(ctx, mutexAddress, resolvedAddress, state, waiter),
-                () => TryGrantBlockedMutexLock(ctx, mutexAddress, resolvedAddress, state, waiter)))
+            RequestBlockedMutexLock(ctx, mutexAddress, resolvedAddress, state, waiter))
         {
             TracePthreadMutex(ctx, "lock-block", mutexAddress, resolvedAddress, state, currentThreadId, (int)OrbisGen2Result.ORBIS_GEN2_OK);
             return (int)OrbisGen2Result.ORBIS_GEN2_OK;
@@ -1069,6 +1064,21 @@ public static class KernelPthreadCompatExports
         TracePthreadMutex(ctx, "lock", mutexAddress, resolvedAddress, state, currentThreadId, hostResult);
         return hostResult;
     }
+
+    // Kept out of PthreadMutexLockCore: the lambdas capture its arguments, so if they lived
+    // there the closure would be allocated on every lock, not only on the few that block.
+    private static bool RequestBlockedMutexLock(
+        CpuContext ctx,
+        ulong mutexAddress,
+        ulong resolvedAddress,
+        PthreadMutexState state,
+        PthreadMutexWaiter waiter) =>
+        GuestThreadExecution.RequestCurrentThreadBlock(
+            ctx,
+            "pthread_mutex_lock",
+            waiter.WakeKey,
+            () => CompleteBlockedMutexLock(ctx, mutexAddress, resolvedAddress, state, waiter),
+            () => TryGrantBlockedMutexLock(ctx, mutexAddress, resolvedAddress, state, waiter));
 
     private static int PthreadMutexUnlockCore(CpuContext ctx, ulong mutexAddress, bool requireOwner)
     {
