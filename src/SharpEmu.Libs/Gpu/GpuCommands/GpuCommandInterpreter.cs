@@ -163,6 +163,8 @@ public sealed partial class GpuCommandInterpreter
 
         execution.Suspended = false;
         execution.MadeProgress = false;
+        // A later slice may see ring memory the guest has appended since.
+        InvalidatePacketCache();
         _execution = execution;
         try
         {
@@ -230,6 +232,60 @@ public sealed partial class GpuCommandInterpreter
         return true;
     }
 
+    // Read-ahead of the packet stream. Each packet cost two synchronised guest reads (header,
+    // then payload), about 2,700 per Dead Cells frame on the render thread; one read now serves
+    // the headers and payloads of the packets that follow. Waits still read memory directly,
+    // and the cache is dropped at every slice, at unwritten ring memory, on command-processor
+    // writes into it and after host-side copies.
+    private const int PacketCacheDwords = 256;
+    private readonly uint[] _packetCache = new uint[PacketCacheDwords];
+    private ulong _packetCacheAddress;
+    private int _packetCacheCount;
+
+    private void InvalidatePacketCache() => _packetCacheCount = 0;
+
+    private bool TryGetCachedPackets(ulong address, int dwords, out ReadOnlySpan<uint> values)
+    {
+        values = default;
+        if (_packetCacheCount == 0 || address < _packetCacheAddress || ((address - _packetCacheAddress) & 3) != 0)
+        {
+            return false;
+        }
+
+        var index = (address - _packetCacheAddress) / sizeof(uint);
+        if (index + (ulong)dwords > (ulong)_packetCacheCount)
+        {
+            return false;
+        }
+
+        values = _packetCache.AsSpan((int)index, dwords);
+        return true;
+    }
+
+    private uint ReadPacketHeader(ulong packetAddress, uint remainingDwords)
+    {
+        if (TryGetCachedPackets(packetAddress, 1, out var cached))
+        {
+            return cached[0];
+        }
+
+        var count = (int)Math.Min(remainingDwords, (uint)PacketCacheDwords);
+        if (count > 1)
+        {
+            RenderPhaseProfile.RecordCommandRead(RenderPhaseProfile.CommandReadKind.Header, count * sizeof(uint));
+            if (_host.TryReadGuest(packetAddress, MemoryMarshal.AsBytes(_packetCache.AsSpan(0, count))))
+            {
+                _packetCacheAddress = packetAddress;
+                _packetCacheCount = count;
+                return _packetCache[0];
+            }
+
+            InvalidatePacketCache();
+        }
+
+        return ReadDword(packetAddress, RenderPhaseProfile.CommandReadKind.Header);
+    }
+
     private PacketCursorStack RequireExecution() =>
         _execution ?? throw _host.Fatal($"No command stream is running: queue={QueueId}.");
 
@@ -265,7 +321,7 @@ public sealed partial class GpuCommandInterpreter
             }
 
             var packetAddress = cursor.Address + ((ulong)cursor.Offset * sizeof(uint));
-            var header = ReadDword(packetAddress, RenderPhaseProfile.CommandReadKind.Header);
+            var header = ReadPacketHeader(packetAddress, cursor.Remaining);
             _packetSerial++;
             var total = cursor.DwordCount;
             var remaining = cursor.Remaining;
@@ -281,6 +337,7 @@ public sealed partial class GpuCommandInterpreter
             // Ring memory the guest has not written yet; retry after it appends more.
             if (header == 0 && cursor.FollowedChunkAdvance)
             {
+                InvalidatePacketCache();
                 execution.Suspended = true;
                 return;
             }
@@ -314,6 +371,12 @@ public sealed partial class GpuCommandInterpreter
             var payload = ReadPayload(cursorIndex, packetAddress, length - 1);
             var packet = new PacketContext(header & ~1u, packetAddress, offset, remaining, total);
             var consumed = handler(this, in packet, payload) + 1;
+            if (opcode is PacketOpcode.CopyData or PacketOpcode.DmaData ||
+                (opcode == PacketOpcode.Nop && ((header >> 2) & 0x3Fu) == PacketCustomCode.DmaData))
+            {
+                // Host-side copies can land in the packet stream itself.
+                InvalidatePacketCache();
+            }
             if (consumed > remaining)
             {
                 throw _host.Fatal($"The handler consumed more than the buffer holds: consumed={consumed} remaining={remaining} header=0x{header:X8} address=0x{packetAddress:X16}.");
@@ -356,6 +419,12 @@ public sealed partial class GpuCommandInterpreter
         }
 
         var scratch = _payloadScratchByDepth[depth].AsSpan(0, (int)payloadDwords);
+        if (payloadDwords != 0 && TryGetCachedPackets(packetAddress + sizeof(uint), (int)payloadDwords, out var cached))
+        {
+            cached.CopyTo(scratch);
+            return scratch;
+        }
+
         if (payloadDwords != 0)
         {
             RenderPhaseProfile.RecordCommandRead(RenderPhaseProfile.CommandReadKind.Payload, scratch.Length * sizeof(uint));
@@ -440,6 +509,12 @@ public sealed partial class GpuCommandInterpreter
                 : BinaryPrimitives.ReadUInt64LittleEndian(source);
             _lastWriteLength = source.Length;
             _lastWritePacket = _packetSerial;
+        }
+
+        if (_packetCacheCount != 0 && address < _packetCacheAddress + (ulong)_packetCacheCount * sizeof(uint) &&
+            address + (ulong)source.Length > _packetCacheAddress)
+        {
+            InvalidatePacketCache();
         }
 
         if (!_host.Memory.TryWrite(address, source))
