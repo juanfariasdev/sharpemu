@@ -232,4 +232,42 @@ public sealed class ResourceMaterializationCacheTests
         Assert.True(Run(cache, plan, heap, [0x1000, 0], out _, out _));
         Assert.Equal(1, cache.Hits);
     }
+
+    // Each draw gets its own key, so a plan sampled this way never hits.
+    private static void RunDistinctDraws(ResourceMaterializationCache cache, ShaderResourcePlan plan, Heap heap, ulong first, int count)
+    {
+        for (var draw = 0; draw < count; draw++)
+            Assert.True(Run(cache, plan, heap, [0x1000, 0], out _, out _, shaderBase: (first + (ulong)draw) * 0x100));
+    }
+
+    [Fact]
+    public void APlanWhoseDrawsNeverRepeatStopsStoringEntries()
+    {
+        var plan = Plan();
+        var heap = new Heap();
+        var cache = new ResourceMaterializationCache();
+        RunDistinctDraws(cache, plan, heap, 0, 256);
+
+        // Later draws are still materialized but no longer stored, so a repeated key misses.
+        Assert.True(Run(cache, plan, heap, [0x1000, 0], out var first, out _, shaderBase: 0x100_0000));
+        Assert.True(Run(cache, plan, heap, [0x1000, 0], out var second, out _, shaderBase: 0x100_0000));
+        Assert.NotSame(first, second);
+        Assert.Equal(first.Images.Select(image => image.ToArray()), second.Images.Select(image => image.ToArray()));
+        Assert.Equal((0, 258), (cache.Hits, cache.Misses));
+    }
+
+    [Fact]
+    public void ASkippedPlanIsMeasuredAgain()
+    {
+        var plan = Plan();
+        var heap = new Heap();
+        var cache = new ResourceMaterializationCache();
+        RunDistinctDraws(cache, plan, heap, 0, 256 + 4096);
+
+        // The skip window is over: the next miss is stored again and its repeat hits.
+        Assert.True(Run(cache, plan, heap, [0x1000, 0], out var first, out _, shaderBase: 0x100_0000));
+        Assert.True(Run(cache, plan, heap, [0x1000, 0], out var second, out _, shaderBase: 0x100_0000));
+        Assert.Same(first, second);
+        Assert.Equal(1, cache.Hits);
+    }
 }

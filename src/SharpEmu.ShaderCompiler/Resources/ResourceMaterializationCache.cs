@@ -26,6 +26,23 @@ public sealed class ResourceMaterializationCache
     // Reused by every miss: its read list keeps its capacity instead of growing again each time.
     private readonly ReadRecorder _recorder = new();
 
+    // Per-plan hit statistics. A plan whose draws almost never repeat their inputs (per-frame
+    // addresses in the user data, for example) only churns entries: each lives about one young
+    // generation and dies in gen2, which drives frequent full blocking collections. Such a plan
+    // skips recording and storing for a while, then is measured again. Its result is the same;
+    // only nothing is kept for it.
+    private const int PlanSampleMisses = 256;
+    private const int PlanSkipMisses = 4096;
+    // Weak keys: the statistics must not keep a retired program's plan alive.
+    private readonly ConditionalWeakTable<ShaderResourcePlan, PlanStatistics> _planStatistics = new();
+
+    private sealed class PlanStatistics
+    {
+        public int Hits;
+        public int Misses;
+        public int SkipRemaining;
+    }
+
     public ResourceMaterializationCache(int generationCapacity = 16384)
     {
         _generationCapacity = Math.Max(1, generationCapacity);
@@ -64,6 +81,7 @@ public sealed class ResourceMaterializationCache
         {
             if (Validate(cached, residentReader))
             {
+                StatisticsFor(plan).Hits++;
                 Hits++;
                 Interlocked.Increment(ref _totalHits);
                 snapshot = cached.Snapshot;
@@ -74,6 +92,7 @@ public sealed class ResourceMaterializationCache
 
             if (TryRefreshTable(key, cached, plan, inputs, residentReader, out var refreshed))
             {
+                StatisticsFor(plan).Hits++;
                 TableRefreshes++;
                 snapshot = refreshed.Snapshot;
                 specialization = refreshed.Specialization;
@@ -84,6 +103,24 @@ public sealed class ResourceMaterializationCache
 
         Misses++;
         Interlocked.Increment(ref _totalMisses);
+        var statistics = StatisticsFor(plan);
+        if (statistics.SkipRemaining > 0)
+        {
+            statistics.SkipRemaining--;
+            return ResourceMaterializer.Materialize(plan, inputs, ref snapshot, ref specialization, out failure);
+        }
+
+        if (++statistics.Misses >= PlanSampleMisses)
+        {
+            var rarelyHits = statistics.Hits * 8 < statistics.Misses;
+            statistics.Hits = 0;
+            statistics.Misses = 0;
+            if (rarelyHits)
+            {
+                statistics.SkipRemaining = PlanSkipMisses;
+            }
+        }
+
         var recorder = _recorder;
         recorder.Reset();
         var recording = new ResourceRuntimeInputs
@@ -242,6 +279,9 @@ public sealed class ResourceMaterializationCache
             high = (high ^ userData[index]) * 0x01000193u;
         return ((ulong)high << 32) | low;
     }
+
+    private PlanStatistics StatisticsFor(ShaderResourcePlan plan) =>
+        _planStatistics.GetValue(plan, static _ => new PlanStatistics());
 
     private bool TryFind(ulong key, ShaderResourcePlan plan, ResourceRuntimeInputs inputs, out Entry entry)
     {
