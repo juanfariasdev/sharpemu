@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using SharpEmu.Libs.VideoOut;
+using SharpEmu.Logging;
 using Xunit;
 
 namespace SharpEmu.Libs.Tests.VideoOut;
@@ -190,6 +191,47 @@ public sealed class PerformanceOverlayTests
     public void GpuSamplerCanCloseWithAQueuedSample()
     {
         var sampler = new WindowsGpuUsage();
+        sampler.RequestSample();
+        sampler.Dispose();
+        sampler.RequestSample();
+        sampler.Dispose();
+    }
+
+    [Fact]
+    public void MacGpuUsageUsesBusiestAccelerator()
+    {
+        var usage = MacAccelerator.IncludeAccelerator(double.NaN, 30);
+        usage = MacAccelerator.IncludeAccelerator(usage, 10);
+        usage = MacAccelerator.IncludeAccelerator(usage, -1);
+        Assert.Equal(30, usage);
+        Assert.Equal(100, MacAccelerator.IncludeAccelerator(usage, 105));
+        Assert.True(double.IsNaN(MacAccelerator.IncludeAccelerator(double.NaN, -1)));
+    }
+
+    [MacAcceleratorFact]
+    public void MacGpuSamplerReadsDeviceUtilization()
+    {
+        using var sampler = new MacGpuUsage();
+        sampler.RequestSample();
+        Assert.True(SpinWait.SpinUntil(() => double.IsFinite(sampler.Percent), TimeSpan.FromSeconds(5)));
+        Assert.InRange(sampler.Percent, 0, 100);
+    }
+
+    [MacOSFact]
+    public void ProcessFootprintCoversTheManagedHeap()
+    {
+        var retained = new byte[64 * 1024 * 1024];
+        Array.Fill(retained, (byte)1);
+
+        Assert.True(HostProcessMemory.TryGetFootprintBytes(out var footprint));
+        Assert.True(footprint >= (ulong)GC.GetTotalMemory(false));
+        GC.KeepAlive(retained);
+    }
+
+    [Fact]
+    public void MacGpuSamplerCanCloseWithAQueuedSample()
+    {
+        var sampler = new MacGpuUsage();
         sampler.RequestSample();
         sampler.Dispose();
         sampler.RequestSample();

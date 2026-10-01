@@ -25,7 +25,7 @@ public static class PerfOverlay
     private const int FrameHistorySize = 128;
 
     private static readonly PerformanceOverlayState DisplayState = new();
-    private static WindowsGpuUsage? _gpuUsage;
+    private static IHostGpuUsage? _gpuUsage;
 
     private static long _lastPresentTimestamp;
     private static long _lastSubmitTimestamp;
@@ -39,6 +39,10 @@ public static class PerfOverlay
     private static long _guestImageCacheBytes;
     private static int _liveDeviceAllocations;
     private static int _peakDeviceAllocations;
+    // Metal reports device totals instead of Vulkan's cache and allocation counters.
+    private static int _metalMemoryStatistics;
+    private static long _deviceAllocatedBytes;
+    private static int _cachedTextureCount;
 
     // Refreshed once per second so per-frame fills never allocate.
     private static long _statsWindowStart = Stopwatch.GetTimestamp();
@@ -77,7 +81,7 @@ public static class PerfOverlay
     internal static void Configure(HostVideoOptions options)
     {
         _gpuUsage?.Dispose();
-        _gpuUsage = new WindowsGpuUsage();
+        _gpuUsage = HostGpuUsage.Create();
         DisplayState.Configure(options,
             string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_OVERLAY"), "0", StringComparison.Ordinal));
         _sessionStartTimestamp = Stopwatch.GetTimestamp();
@@ -138,6 +142,14 @@ public static class PerfOverlay
         Interlocked.Exchange(ref _guestImageCacheBytes, checked((long)imageBytes));
         Interlocked.Exchange(ref _liveDeviceAllocations, liveDeviceAllocations);
         Interlocked.Exchange(ref _peakDeviceAllocations, peakDeviceAllocations);
+    }
+
+    public static void SetMetalMemoryStatistics(ulong deviceAllocatedBytes, ulong imageBytes, int cachedTextureCount)
+    {
+        Interlocked.Exchange(ref _deviceAllocatedBytes, checked((long)deviceAllocatedBytes));
+        Interlocked.Exchange(ref _guestImageCacheBytes, checked((long)imageBytes));
+        Interlocked.Exchange(ref _cachedTextureCount, cachedTextureCount);
+        Volatile.Write(ref _metalMemoryStatistics, 1);
     }
 
     /// <summary>
@@ -266,9 +278,24 @@ public static class PerfOverlay
             _gpuUsage?.RequestSample();
             var gpuLabel = FormatUsage(gpuPercent);
             var timeLabel = $"{elapsedHours:00}:{elapsedMinutes:00}:{elapsedRemainingSeconds:00}";
-            _line4 = $"MEM {heapMb}M BUF {guestBufferMb}M IMG {guestImageMemoryInMiB}M";
-            _line5 = $"CPU {_cpuPercent:0}%  GPU {gpuLabel}";
-            _line6 = $"TIME {timeLabel}  VKALLOC {liveAllocations}/{peakAllocations}";
+            // Where the host reports the process footprint, MEM shows that and the managed
+            // heap gets its own field: the heap alone leaves out guest memory and the driver.
+            var hasFootprint = HostProcessMemory.TryGetFootprintBytes(out var footprintBytes);
+            var memoryMb = hasFootprint ? (long)(footprintBytes / (1024 * 1024)) : heapMb;
+            _line5 = hasFootprint
+                ? $"CPU {_cpuPercent:0}%  GPU {gpuLabel}  HEAP {heapMb}M"
+                : $"CPU {_cpuPercent:0}%  GPU {gpuLabel}";
+            if (Volatile.Read(ref _metalMemoryStatistics) != 0)
+            {
+                var deviceMb = Interlocked.Read(ref _deviceAllocatedBytes) / (1024 * 1024);
+                _line4 = $"MEM {memoryMb}M MTL {deviceMb}M IMG {guestImageMemoryInMiB}M";
+                _line6 = $"TIME {timeLabel}  TEX {Volatile.Read(ref _cachedTextureCount)}";
+            }
+            else
+            {
+                _line4 = $"MEM {memoryMb}M BUF {guestBufferMb}M IMG {guestImageMemoryInMiB}M";
+                _line6 = $"TIME {timeLabel}  VKALLOC {liveAllocations}/{peakAllocations}";
+            }
             _minimalLine1 = $"FPS {_fps:0.0}  CPU {_cpuPercent:0}%";
             _minimalLine2 = $"GPU {gpuLabel}  TIME {timeLabel}";
             _minimalSummary = $"FPS {_fps:0.0} | CPU {_cpuPercent:0}% | GPU {gpuLabel} | TIME {timeLabel}";
