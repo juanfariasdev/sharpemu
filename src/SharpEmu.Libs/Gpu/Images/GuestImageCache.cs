@@ -34,7 +34,9 @@ public sealed unsafe partial class GuestImageCache : IGuestImageCache, IGuestIma
     private readonly HashSet<ResourceSlotIdentifier> _scheduledReadbacks = new();
     private readonly SortedDictionary<ulong, SurfaceMetadata> _surfaceMetadata = new();
     private ulong _totalUsedMemory;
-    private ulong _collectionStartBytes;
+    // Below this the cache keeps every image. Collection ticks run once per submission, so the
+    // 16-tick age of an unpressured pass is a frame or two and would drop images still in use.
+    private ulong _collectionStartBytes = 1024 * MiB;
     private ulong _memoryPressureBytes = 1536 * MiB;
     private ulong _criticalMemoryBytes = 3072 * MiB;
     private ulong _collectionTick;
