@@ -206,6 +206,30 @@ public sealed partial class GpuCommandInterpreter
 
     public void Suspend() => RequireExecution().Suspended = true;
 
+    private ulong _packetSerial;
+    private ulong _lastWriteAddress;
+    private ulong _lastWriteValue;
+    private int _lastWriteLength;
+    private ulong _lastWritePacket;
+
+    // The command processor runs its packets in order, so a wait issued right after this queue
+    // wrote the same label observes that write. The interpreter performs the write at parse
+    // time while the GPU work and the guest run concurrently, and a writer that the hardware
+    // orders after this wait (the guest resetting the label for its next frame) can land in
+    // between; without this the wait would see that later value and never complete.
+    private bool TryReadOwnWrite(ulong address, bool is64Bit, out ulong value)
+    {
+        value = 0;
+        if (address != _lastWriteAddress || _packetSerial - _lastWritePacket > 2 ||
+            _lastWriteLength < (is64Bit ? sizeof(ulong) : sizeof(uint)))
+        {
+            return false;
+        }
+
+        value = is64Bit ? _lastWriteValue : (uint)_lastWriteValue;
+        return true;
+    }
+
     private PacketCursorStack RequireExecution() =>
         _execution ?? throw _host.Fatal($"No command stream is running: queue={QueueId}.");
 
@@ -242,6 +266,7 @@ public sealed partial class GpuCommandInterpreter
 
             var packetAddress = cursor.Address + ((ulong)cursor.Offset * sizeof(uint));
             var header = ReadDword(packetAddress, RenderPhaseProfile.CommandReadKind.Header);
+            _packetSerial++;
             var total = cursor.DwordCount;
             var remaining = cursor.Remaining;
             var offset = cursor.Offset;
@@ -407,6 +432,16 @@ public sealed partial class GpuCommandInterpreter
 
     internal void WriteBytes(ulong address, ReadOnlySpan<byte> source)
     {
+        if (source.Length is sizeof(uint) or sizeof(ulong))
+        {
+            _lastWriteAddress = address;
+            _lastWriteValue = source.Length == sizeof(uint)
+                ? BinaryPrimitives.ReadUInt32LittleEndian(source)
+                : BinaryPrimitives.ReadUInt64LittleEndian(source);
+            _lastWriteLength = source.Length;
+            _lastWritePacket = _packetSerial;
+        }
+
         if (!_host.Memory.TryWrite(address, source))
         {
             throw _host.Fatal($"The command stream cannot write guest memory: address=0x{address:X16} size={source.Length}.");
