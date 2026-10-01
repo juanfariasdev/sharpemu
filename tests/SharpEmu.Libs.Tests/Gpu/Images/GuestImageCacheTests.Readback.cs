@@ -94,6 +94,27 @@ public sealed partial class GuestImageCacheTests
     }
 
     [Fact]
+    public void GarbageCollector_KeepsUnusedImagesBelowTheCollectionThreshold()
+    {
+        if (!GatePrerequisites.Ready(_vulkan)) return;
+        using var harness = new CacheHarness(_vulkan);
+        var address = harness.MapBacked(0x10000, ReadWrite);
+        var request = Color32(address);
+        var image = harness.Find(ref request);
+
+        // Collection ticks run once per submission: a hundred is a few frames of a busy title.
+        harness.Worker.Run(() =>
+        {
+            for (var tick = 0; tick < 100; tick++)
+            {
+                harness.Images.RunGarbageCollector();
+            }
+        });
+        Assert.True(harness.Images.Contains(image));
+        harness.Shutdown();
+    }
+
+    [Fact]
     public void ScheduledReadback_PublishesAfterTheTickAndKeepsTheImage()
     {
         if (!GatePrerequisites.Ready(_vulkan)) return;
