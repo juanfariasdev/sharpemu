@@ -23,6 +23,8 @@ public sealed class ResourceMaterializationCache
     private Dictionary<ulong, Entry> _young = new();
     private Dictionary<ulong, Entry> _old = new();
     private byte[] _scratch = new byte[256];
+    // Reused by every miss: its read list keeps its capacity instead of growing again each time.
+    private readonly ReadRecorder _recorder = new();
 
     public ResourceMaterializationCache(int generationCapacity = 16384)
     {
@@ -82,7 +84,8 @@ public sealed class ResourceMaterializationCache
 
         Misses++;
         Interlocked.Increment(ref _totalMisses);
-        var recorder = new ReadRecorder();
+        var recorder = _recorder;
+        recorder.Reset();
         var recording = new ResourceRuntimeInputs
         {
             UserData = inputs.UserData,
@@ -139,7 +142,8 @@ public sealed class ResourceMaterializationCache
         if (!changed)
             return false;
 
-        var recorder = new ReadRecorder();
+        var recorder = _recorder;
+        recorder.Reset();
         var recording = new ResourceRuntimeInputs
         {
             UserData = inputs.UserData,
@@ -254,8 +258,12 @@ public sealed class ResourceMaterializationCache
     {
         if (_young.Count >= _generationCapacity && !_young.ContainsKey(key))
         {
+            // Swap and clear instead of allocating a new table: at 16k entries its arrays
+            // are large-object-heap allocations.
+            var recycled = _old;
             _old = _young;
-            _young = new Dictionary<ulong, Entry>(_generationCapacity);
+            recycled.Clear();
+            _young = recycled;
         }
 
         _young[key] = entry;
@@ -315,6 +323,13 @@ public sealed class ResourceMaterializationCache
         public bool Failed { get; private set; }
 
         public List<(ulong Address, uint Word, bool Clean, bool Table)> Reads => _reads;
+
+        public void Reset()
+        {
+            _reads.Clear();
+            _inTable = false;
+            Failed = false;
+        }
 
         public void SetTablePhase(bool inTable) => _inTable = inTable;
 
