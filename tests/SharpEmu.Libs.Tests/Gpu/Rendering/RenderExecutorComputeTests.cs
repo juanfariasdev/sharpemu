@@ -320,4 +320,96 @@ public sealed class RenderExecutorComputeTests : IDisposable
         var fatal = Assert.Throws<RenderExecutorFatalException>(() => _executor.Dispatch(1, Banks(), 4, 1, 1, 0x41));
         Assert.Contains("index=0 words=2", fatal.Message);
     }
+
+    private const uint PatternFillInitiator = 0x41;
+
+    // The pattern-fill kernel: descriptor in s[0:3], pattern in s4..s7, count in s8, period in s9.
+    private void ConfigurePatternFill(uint records, uint count, uint period, uint[] pattern, bool threadDimensions = false)
+    {
+        var descriptor = BufferDescriptor(MetadataAddress, 4, records, format: 20);
+        var program = new ShaderProgramInfo
+        {
+            Stage = ShaderStageKind.Compute,
+            Hash = 0x35427D90AF0BA6C6,
+            Buffers = [new BufferResourceInfo(false, true, false, true, false, 4, 4)],
+            PatternFill = new SharpEmu.Libs.Gpu.Pipelines.PatternFill(0, 4, 8, 9, 10),
+        };
+        uint[] userData = [descriptor[0], descriptor[1], descriptor[2], descriptor[3], pattern[0], pattern[1], pattern[2], pattern[3], count, period];
+        var compute = ComputeProgram(Stage(program, buffers: [descriptor], userData: userData), threadDimensions);
+        _pipelines.Compute = new ComputeProgram
+        {
+            Program = compute.Program,
+            Input = new ComputeInputInfo
+            {
+                ThreadsX = 64,
+                ThreadsY = 1,
+                ThreadsZ = 1,
+                DispatchThreadDimensions = threadDimensions,
+                GroupIdX = true,
+                ThreadIdCount = 1,
+                WaveSize = 64,
+                WorkgroupRegister = 10,
+                Stage = compute.Input.Stage,
+            },
+        };
+    }
+
+    [Fact]
+    public void PatternFill_OneValueOverAWholeImageBecomesAClear()
+    {
+        _host.ClearableImages.Add(MetadataAddress);
+        ConfigurePatternFill(256, 256, 1, [ClearValue, 1, 2, 3]);
+        _executor.Dispatch(1, Banks(), 4, 1, 1, PatternFillInitiator);
+
+        Assert.Contains($"clear_image {MetadataAddress:X} 400 {ClearValue:X8}", _host.Calls);
+        Assert.Contains("reset_bindings", _host.Calls);
+        AssertNotDispatched();
+    }
+
+    [Fact]
+    public void PatternFill_EqualValuesOverThePeriodBecomeAClear()
+    {
+        _host.ClearableImages.Add(MetadataAddress);
+        ConfigurePatternFill(256, 256, 3, [ClearValue, ClearValue, ClearValue, 7]);
+        _executor.Dispatch(1, Banks(), 4, 1, 1, PatternFillInitiator);
+
+        Assert.Contains($"clear_image {MetadataAddress:X} 400 {ClearValue:X8}", _host.Calls);
+        AssertNotDispatched();
+    }
+
+    [Theory]
+    [InlineData(2u, 256u, 4u)] // two different values
+    [InlineData(1u, 256u, 2u)] // fewer threads than records to fill
+    [InlineData(1u, 512u, 8u)] // a count past the descriptor's records
+    [InlineData(0u, 256u, 4u)] // no period
+    public void PatternFill_OtherFillsRunTheDispatch(uint period, uint count, uint groups)
+    {
+        _host.ClearableImages.Add(MetadataAddress);
+        ConfigurePatternFill(256, count, period, [ClearValue, ClearValue + 1, ClearValue, ClearValue]);
+        _executor.Dispatch(1, Banks(), groups, 1, 1, PatternFillInitiator);
+
+        Assert.DoesNotContain(_host.Calls, c => c.StartsWith("clear_image", StringComparison.Ordinal));
+        AssertDispatched(groups, 1, 1);
+    }
+
+    [Fact]
+    public void PatternFill_ThreadDimensionsCountThreadsNotGroups()
+    {
+        _host.ClearableImages.Add(MetadataAddress);
+        ConfigurePatternFill(256, 256, 1, [ClearValue, 0, 0, 0], threadDimensions: true);
+        _executor.Dispatch(1, Banks(), 64, 1, 1, PatternFillInitiator | 0x20);
+
+        Assert.DoesNotContain(_host.Calls, c => c.StartsWith("clear_image", StringComparison.Ordinal));
+        AssertDispatched(1, 1, 1);
+    }
+
+    [Fact]
+    public void PatternFill_OfPlainBufferMemoryRunsTheDispatch()
+    {
+        ConfigurePatternFill(256, 256, 1, [ClearValue, 0, 0, 0]);
+        _executor.Dispatch(1, Banks(), 4, 1, 1, PatternFillInitiator);
+
+        Assert.Contains($"clear_image {MetadataAddress:X} 400 {ClearValue:X8}", _host.Calls);
+        AssertDispatched(4, 1, 1);
+    }
 }
