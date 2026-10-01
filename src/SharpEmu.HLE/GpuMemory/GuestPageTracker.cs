@@ -190,6 +190,38 @@ public sealed class GuestPageTracker
         return tracked;
     }
 
+    // A CPU write fault. A fault on a CPU-write hot page opens the rest of its hot run in the
+    // same block too (up to MaxFaultRunPages): the guest streams those pages every frame, and
+    // under Rosetta each page fault costs far more than uploading a page it has not written yet.
+    public bool InvalidateCpuWriteFault(ulong vaddr, ulong size, out bool needsGpuFlush)
+    {
+        RejectUploadCallbackReentry();
+        ValidateRange(vaddr, size);
+        var offset = vaddr % BlockBytes;
+        if (size == 0 || size > BlockBytes - offset || Volatile.Read(ref _regions[vaddr / BlockBytes]) is not { } region)
+        {
+            return InvalidateRegion(vaddr, size, out needsGpuFlush);
+        }
+
+        using (region.Lock.Hold())
+        {
+            if (region.IsModified(WriteOrigin.Gpu, offset, size))
+            {
+                needsGpuFlush = true;
+                return true;
+            }
+
+            needsGpuFlush = false;
+            var run = region.CpuWriteHotRunBytes(vaddr, MaxFaultRunPages);
+            var end = Math.Max(vaddr + size, (vaddr & ~(PageBytes - 1)) + run);
+            region.MarkCpuWrite(vaddr, end - vaddr);
+        }
+
+        return true;
+    }
+
+    private const int MaxFaultRunPages = 256;
+
     public void ForEachDownloadRange(ulong vaddr, ulong size, bool clear, Action<ulong, ulong>? preflight, Action<ulong, ulong> visit)
     {
         RejectUploadCallbackReentry();

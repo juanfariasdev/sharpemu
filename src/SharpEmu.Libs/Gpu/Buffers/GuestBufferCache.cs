@@ -134,6 +134,16 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
         return tracked && completed;
     }
 
+    bool IGuestBufferStore.MarkCpuWriteFault(ulong address, ulong size)
+    {
+        var tracked = _tracker.InvalidateCpuWriteFault(address, size, out var needsGpuFlush);
+        var completed = !needsGpuFlush || ReadMemoryOrAwaitShutdown(address, size, isWrite: true,
+            GuestMemoryProfile.ReadbackSource.CpuWriteInvalidation);
+        if (GuestGpuMemoryHook.Traces(address, size))
+            GuestGpuMemoryHook.Trace(address, size, $"buffer-write-fault tracked={tracked} completed={completed}");
+        return tracked && completed;
+    }
+
     public bool TrySynchronizeCpuRead(ulong address, ulong size) =>
         TrySynchronizeCpuRead(address, size, GuestMemoryProfile.ReadbackSource.CpuReadSynchronization);
 
