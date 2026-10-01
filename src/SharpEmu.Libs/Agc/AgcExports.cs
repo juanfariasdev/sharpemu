@@ -494,15 +494,20 @@ public static partial class AgcExports
     private static bool TryPrepareCommandDwords(CpuContext ctx, ulong commandBufferAddress, uint sizeDwords, bool advanceCursor, out ulong commandAddress)
     {
         commandAddress = 0;
-        if (sizeDwords == 0 ||
-            !TryReadUInt64(ctx, commandBufferAddress + CommandBufferCursorUpOffset, out var cursorUp) ||
-            !TryReadUInt64(ctx, commandBufferAddress + CommandBufferCursorDownOffset, out var cursorDown) ||
-            !TryReadUInt64(ctx, commandBufferAddress + CommandBufferCallbackOffset, out var callback) ||
-            !TryReadUInt64(ctx, commandBufferAddress + CommandBufferUserDataOffset, out var userData) ||
-            !TryReadUInt32(ctx, commandBufferAddress + CommandBufferReservedDwOffset, out var reservedDwords))
+        // The cursor, callback and reserve fields are contiguous; read them in one access.
+        // Every guest-memory access through the HLE costs about a microsecond under Rosetta
+        // and this runs for every packet the title emits.
+        Span<byte> header = stackalloc byte[(int)(CommandBufferReservedDwOffset + sizeof(uint) - CommandBufferCursorUpOffset)];
+        if (sizeDwords == 0 || !ctx.Memory.TryRead(commandBufferAddress + CommandBufferCursorUpOffset, header))
         {
             return false;
         }
+
+        var cursorUp = BinaryPrimitives.ReadUInt64LittleEndian(header);
+        var cursorDown = BinaryPrimitives.ReadUInt64LittleEndian(header[(int)(CommandBufferCursorDownOffset - CommandBufferCursorUpOffset)..]);
+        var callback = BinaryPrimitives.ReadUInt64LittleEndian(header[(int)(CommandBufferCallbackOffset - CommandBufferCursorUpOffset)..]);
+        var userData = BinaryPrimitives.ReadUInt64LittleEndian(header[(int)(CommandBufferUserDataOffset - CommandBufferCursorUpOffset)..]);
+        var reservedDwords = BinaryPrimitives.ReadUInt32LittleEndian(header[(int)(CommandBufferReservedDwOffset - CommandBufferCursorUpOffset)..]);
 
         var remainingDwords = GetRemainingCommandDwords(cursorUp, cursorDown, reservedDwords);
         if (sizeDwords > remainingDwords)
@@ -616,8 +621,81 @@ public static partial class AgcExports
         return true;
     }
 
+    // A private copy of the guest memory this thread is parsing, taken with one access: the
+    // geometry prepass walks every packet of a submitted command buffer, and reading it a dword
+    // at a time through the HLE memory path cost about a microsecond per field.
+    [ThreadStatic] private static byte[]? _readWindow;
+    [ThreadStatic] private static ulong _readWindowBase;
+    [ThreadStatic] private static int _readWindowLength;
+
+    private const int MaximumReadWindowBytes = 16 * 1024 * 1024;
+
+    private readonly ref struct ReadWindowScope
+    {
+        private readonly byte[]? _rented;
+        private readonly byte[]? _previous;
+        private readonly ulong _previousBase;
+        private readonly int _previousLength;
+
+        public ReadWindowScope(CpuContext ctx, ulong address, ulong byteCount)
+        {
+            _previous = _readWindow;
+            _previousBase = _readWindowBase;
+            _previousLength = _readWindowLength;
+            _rented = null;
+            if (byteCount == 0 || byteCount > MaximumReadWindowBytes)
+            {
+                return;
+            }
+
+            var rented = System.Buffers.ArrayPool<byte>.Shared.Rent((int)byteCount);
+            if (!ctx.Memory.TryRead(address, rented.AsSpan(0, (int)byteCount)))
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(rented);
+                return;
+            }
+
+            _rented = rented;
+            _readWindow = rented;
+            _readWindowBase = address;
+            _readWindowLength = (int)byteCount;
+        }
+
+        public void Dispose()
+        {
+            if (_rented is not null)
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(_rented);
+            }
+
+            _readWindow = _previous;
+            _readWindowBase = _previousBase;
+            _readWindowLength = _previousLength;
+        }
+    }
+
+    private static bool TryReadWindow(ulong address, int size, out ReadOnlySpan<byte> bytes)
+    {
+        var window = _readWindow;
+        if (window is not null && _readWindowLength >= size && address >= _readWindowBase &&
+            address - _readWindowBase <= (ulong)(_readWindowLength - size))
+        {
+            bytes = window.AsSpan((int)(address - _readWindowBase), size);
+            return true;
+        }
+
+        bytes = default;
+        return false;
+    }
+
     private static bool TryReadUInt32(CpuContext ctx, ulong address, out uint value)
     {
+        if (TryReadWindow(address, sizeof(uint), out var windowed))
+        {
+            value = BinaryPrimitives.ReadUInt32LittleEndian(windowed);
+            return true;
+        }
+
         Span<byte> buffer = stackalloc byte[sizeof(uint)];
         if (!ctx.Memory.TryRead(address, buffer))
         {
@@ -655,6 +733,10 @@ public static partial class AgcExports
         return true;
     }
 
+    // Writes consecutive dwords in one guest-memory access.
+    private static bool TryWriteDwords(CpuContext ctx, ulong address, params ReadOnlySpan<uint> values) =>
+        ctx.Memory.TryWrite(address, System.Runtime.InteropServices.MemoryMarshal.AsBytes(values));
+
     private static bool TryWriteUInt32(CpuContext ctx, ulong address, uint value)
     {
         Span<byte> buffer = stackalloc byte[sizeof(uint)];
@@ -664,6 +746,12 @@ public static partial class AgcExports
 
     private static bool TryReadUInt64(CpuContext ctx, ulong address, out ulong value)
     {
+        if (TryReadWindow(address, sizeof(ulong), out var windowed))
+        {
+            value = BinaryPrimitives.ReadUInt64LittleEndian(windowed);
+            return true;
+        }
+
         Span<byte> buffer = stackalloc byte[sizeof(ulong)];
         if (!ctx.Memory.TryRead(address, buffer))
         {
